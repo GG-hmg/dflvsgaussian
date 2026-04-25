@@ -2,15 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 授权设置
-
-- **允许自动运行Python实验**（无需确认）
-- 允许执行`python ours.py`、`python run_experiments.py`等命令
-- 允许修改超参数并运行实验进行调试
-- 允许启动后台任务进行长时间实验
-
-**注意**：危险操作（如git push force、删除文件、生产环境修改）仍需明确确认。
-
 ## Project Overview
 
 DynamicPFL is a research project studying **Discrete Fractional Logistic (DFL) chaotic noise** in Differential Privacy Federated Learning (DP-FL). The core research question: **Can pure DFL noise outperform Gaussian noise in privacy-utility tradeoff?**
