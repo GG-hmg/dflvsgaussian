@@ -34,7 +34,7 @@ Global Model → Local Training (Client)
 **ours.py** - Main Training Loop
 - `local_update_with_dp()`: Client-side training with DP defense
 - DFL noise mixing: `sqrt(chaotic_factor) * DFL_noise + sqrt(1-chaotic_factor) * Gaussian_noise`
-- **Secondary clipping**: Prevents gradient explosion from DFL noise
+- **Secondary clipping (line 359-366)**: After adding DFL noise, applies post-norm clipping to prevent gradient explosion
 - Integrates with `gradient_inversion_risk_simulator.py` for real-time risk evaluation
 
 **gradient_inversion_risk_simulator.py** - Privacy Evaluator
