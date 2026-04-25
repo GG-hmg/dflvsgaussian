@@ -364,16 +364,31 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     if u.numel() < total_uniform:
         blen = u.numel()
         reps = (total_uniform + blen - 1) // blen
-        tiled = u.repeat(reps)[:total_uniform]
-        phase = torch.rand(reps, dtype=u.dtype, device=u.device)
-        uniform_vals = torch.remainder(tiled + phase.repeat_interleave(blen)[:total_uniform], 1.0)
+
+        # 移除导致均值偏移的 phase 变量，直接平铺
+        uniform_vals = u.repeat(reps)[:total_uniform]
+        needs_sign_flip = True
     else:
         uniform_vals = u[:total_uniform]
+        needs_sign_flip = False
 
     pairs = uniform_vals.reshape(-1, 2)
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
-    
-    return generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float32)
+
+    # 转换为高斯噪声
+    noise = generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float32)
+
+    # 安全地打破平铺漏洞：在零均值的高斯空间进行区块符号翻转 (+1 或 -1)
+    if needs_sign_flip:
+        base_noise_len = blen // 2
+        reps_noise = (total_elements + base_noise_len - 1) // base_noise_len
+
+        signs = (torch.randint(0, 2, (reps_noise,), device=noise.device, dtype=torch.float32) * 2 - 1)
+        sign_mask = signs.repeat_interleave(base_noise_len)[:total_elements]
+
+        noise = noise * sign_mask.reshape(shape)
+
+    return noise
 
 generate_simple_chaotic_noise = generate_dfl_gaussian_noise
