@@ -28,3 +28,7 @@ grid_search_results/*.csv
 
 # Images (keep structure)
 *.png
+
+# Local docs and txt
+txt/
+docs/
