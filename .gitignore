@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Data
+data/
+
+# Results (keep experiment_results structure but ignore contents)
+experiment_results/*.txt
+experiment_results/*.json
+experiment_results/*.csv
+experiment_results/*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Grid search results
+grid_search_results/*.json
+grid_search_results/*.csv
+
+# Images (keep structure)
+*.png
