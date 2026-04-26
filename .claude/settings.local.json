@@ -79,7 +79,11 @@
       "Bash(git config *)",
       "Bash(curl -I https://github.com)",
       "Bash(git pull *)",
-      "Bash(powershell -Command \"Compress-Archive -Path '*.py','.gitignore' -DestinationPath 'DynamicPFL_Code.zip' -Force\")"
+      "Bash(powershell -Command \"Compress-Archive -Path '*.py','.gitignore' -DestinationPath 'DynamicPFL_Code.zip' -Force\")",
+      "Bash(git rm *)",
+      "Bash(python run_experiments.py --datasets CIFAR10 --dp_methods dfl gaussian --num_runs 1 --epochs 60)",
+      "Bash(where python *)",
+      "Bash(conda env *)"
     ]
   }
 }

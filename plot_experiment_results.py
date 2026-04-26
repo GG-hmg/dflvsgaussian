@@ -114,7 +114,7 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax1.set_title(f'{dataset} - Accuracy Comparison')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
-    ax1.set_ylim([0, 100])
+    ax1.set_ylim([0, 110])
 
     # 图2: 抗反演能力对比
     ax2 = axes[1]
@@ -128,30 +128,21 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax2.set_title(f'{dataset} - Privacy Protection')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
-    ax2.set_ylim([0, 1])
+    ax2.set_ylim([0, 1.2])
 
-    # 添加参数信息到左上角
-    param_text = f"Parameters:\n"
-    param_text += f"sigma: {params.get('sigma', 'N/A')}\n"
-    param_text += f"chaotic_factor: {params.get('chaotic_factor', 'N/A')}\n"
-    param_text += f"dfl_alpha: {params.get('dfl_alpha', 'N/A')}\n"
-    param_text += f"clipping_bound: {params.get('clipping_bound', 'N/A')}"
+    # 修改参数信息框
+    param_text = f"Params: σ={params.get('sigma', 'N/A')}, Chaotic={params.get('chaotic_factor', 'N/A')}, α={params.get('dfl_alpha', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
 
-    fig.text(0.02, 0.98, param_text, ha='left', va='top', fontsize=8,
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    # 修改最终结果框
+    result_text = (f"DFL: Acc={dfl_results.get('final_accuracy', 'N/A')}% / Anti-Inv={dfl_results.get('anti_inversion', 'N/A')}  |  "
+                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% / Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}")
 
-    # 添加最终结果标注到右上角
-    result_text = f"Final Results:\n"
-    result_text += f"DFL Acc: {dfl_results.get('final_accuracy', 'N/A')}%\n"
-    result_text += f"DFL Anti-Inversion: {dfl_results.get('anti_inversion', 'N/A')}\n"
-    result_text += f"Gaussian Acc: {gauss_results.get('final_accuracy', 'N/A')}%\n"
-    result_text += f"Gaussian Anti-Inversion: {gauss_results.get('anti_inversion', 'N/A')}"
+    # 将参数和结果放在整个 Figure 的底部
+    fig.text(0.5, 0.02, param_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    fig.text(0.5, 0.94, result_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
 
-    fig.text(0.98, 0.98, result_text, ha='right', va='top', fontsize=8,
-             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8),
-             transform=fig.transFigure)
-
-    plt.tight_layout(rect=[0, 0, 1, 1])
+    # 调整布局，为底部的文本留出空间
+    plt.tight_layout(rect=[0, 0.05, 1, 0.92])
 
     # 保存
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
