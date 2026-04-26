@@ -32,3 +32,6 @@ grid_search_results/*.csv
 # Local docs and txt
 txt/
 docs/
+
+# Claude settings
+.claude/

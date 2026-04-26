@@ -183,7 +183,7 @@ class ExperimentRunner:
                     "--dfl_max_direct_uniform",
                     "4096",
                     "--dfl_decimation",
-                    "2",
+                    params.get("dfl_decimation", "2"),
                 ]
             )
 
