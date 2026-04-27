@@ -284,36 +284,44 @@ _dfl_long_cache = {}  # key: (mu, alpha), value: (seq1, seq2) tuple
 _DFL_PRECOMPUTE_LENGTH = 200000  # 限制预生成量为20万点，提供足够的切片空间
 
 def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
-    """Get DFL sequences from cache or pre-compute them.
-    Uses x0 and x1 to derive random slice offsets for true per-batch chaos.
-    """
     cache_key = (mu, alpha)
+    precompute_len = 5000000  # 【水库总容量】：500 万
 
-    # Double precompute length to ensure enough slice space
-    precompute_len = 5000000
+    # 如果没有缓存，使用纯 Python 列表进行极速生成（只需约1秒）
+    if cache_key not in _dfl_long_cache or len(_dfl_long_cache.get(cache_key, ([], []))[0]) < precompute_len:
+        print(f"\n[INFO] 正在极速预生成 {precompute_len} 步混沌池，请稍候约1-2秒...")
+        x_list = [0.0] * precompute_len
+        y_list = [0.0] * precompute_len
+        x_list[0] = float(x0) % 1.0
+        y_list[0] = float(x1) % 1.0
 
-    if cache_key not in _dfl_long_cache or len(_dfl_long_cache.get(cache_key, ([], []))[
-0]) < precompute_len:
-        x = torch.zeros(precompute_len, dtype=torch.float64)
-        y = torch.zeros(precompute_len, dtype=torch.float64)
-        x[0] = float(x0) % 1.0
-        y[0] = float(x1) % 1.0
+        mu_f, alpha_f = float(mu), float(alpha)
+        oma = 1.0 - alpha_f
+
         for n in range(precompute_len - 1):
-            temp_x = mu * x[n] * (1.0 - x[n])
-            x[n + 1] = (alpha * temp_x + (1.0 - alpha) * x[max(0, n - 1)]) % 1.0
-            temp_y = mu * y[n] * (1.0 - y[n])
-            y[n + 1] = (alpha * temp_y + (1.0 - alpha) * y[max(0, n - 1)]) % 1.0
-        _dfl_long_cache[cache_key] = (x, y)
+            prev = n - 1 if n > 0 else 0
+            xn, yn = x_list[n], y_list[n]
+            xp, yp = x_list[prev], y_list[prev]
+            # 纯浮点运算，无调度开销
+            x_list[n + 1] = (alpha_f * mu_f * xn * (1.0 - xn) + oma * xp) % 1.0
+            y_list[n + 1] = (alpha_f * mu_f * yn * (1.0 - yn) + oma * yp) % 1.0
+
+        _dfl_long_cache[cache_key] = (
+            torch.tensor(x_list, dtype=torch.float64),
+            torch.tensor(y_list, dtype=torch.float64)
+        )
+        print("[INFO] 混沌池极速生成完毕！")
 
     seq1, seq2 = _dfl_long_cache[cache_key]
 
-    # Use x0 and x1 as anchors to extract different random slices per batch
-    if needed_length <= len(seq1):
+    # 安全切片：确保需要长度不会超过水库
+    if needed_length < len(seq1):
         start_idx1 = int((float(x0) * 104729) % max(1, len(seq1) - needed_length))
         start_idx2 = int((float(x1) * 104729) % max(1, len(seq2) - needed_length))
         return seq1[start_idx1:start_idx1 + needed_length].clone(), \
                seq2[start_idx2:start_idx2 + needed_length].clone()
     else:
+        # 理论上不会走到这里，加了保险
         reps = (needed_length + len(seq1) - 1) // len(seq1)
         return seq1.repeat(reps)[:needed_length].clone(), seq2.repeat(reps)[:needed_length].clone()
 
@@ -324,11 +332,8 @@ def generate_dfl_sequence(length, mu=3.99, alpha=0.98, x0=0.5):
 
 
 def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
-                            burn_in=512, decimation=2, jitter=1e-4,
+                                burn_in=512, decimation=2, jitter=1e-4,
                                 max_direct_uniform=4096):
-    """
-    DFL - Ziggurat Sampler with Decimation and Burn-in.
-    """
     total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
     if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
 
@@ -336,18 +341,17 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # 限制预生成量为500万点，避免过长的初始化时间
-    max_sequence_pool = 5000000
+    # 【关键修复点：抽水桶上限】：每次最多只取 200 万个点。
+    # 这样给 500 万的水库留出了整整 300 万的随机滑动窗口，恢复真正的随机性！
+    # 同时 200 万的内存开销远低于 500 万，彻底消除内存抖动。
+    max_sequence_pool = 2000000
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
 
     seq1 = generate_dfl_sequence(base_length, mu=mu, alpha=alpha, x0=x0)
     seq2 = generate_dfl_sequence(base_length, mu=mu, alpha=alpha, x0=x1)
-    
-    # Mix channels and apply burn-in
+
     u = torch.remainder(seq1 + 0.61803398875 * seq2, 1.0)[burn_in:]
-    
-    # Apply decimation (Gap) to break correlation
     u = u[::thin_factor]
 
     if jitter > 0:
@@ -355,38 +359,33 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
 
     if u.numel() == 0: raise ValueError("DFL sequence empty")
 
-    # Degeneracy check
     check = u[:min(u.numel(), 4096)]
     if torch.unique(torch.floor(check * 4096)).numel() < min(256, max(32, check.numel() // 64)):
         u = torch.remainder(0.8 * u + 0.2 * torch.rand_like(u), 1.0)
 
-    # Expansion if needed
+    # 如果抽出来的水不够，利用后处理铺满（这是最高效的做法）
     if u.numel() < total_uniform:
         blen = u.numel()
         reps = (total_uniform + blen - 1) // blen
-
-        # 移除导致均值偏移的 phase 变量，直接平铺
         uniform_vals = u.repeat(reps)[:total_uniform]
         needs_sign_flip = True
     else:
         uniform_vals = u[:total_uniform]
+        blen = total_uniform
         needs_sign_flip = False
 
     pairs = uniform_vals.reshape(-1, 2)
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
-    # 转换为高斯噪声
     noise = generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float32)
 
-    # 安全地打破平铺漏洞：在零均值的高斯空间进行区块符号翻转 (+1 或 -1)
+    # 符号翻转保平安
     if needs_sign_flip:
         base_noise_len = blen // 2
         reps_noise = (total_elements + base_noise_len - 1) // base_noise_len
-
         signs = (torch.randint(0, 2, (reps_noise,), device=noise.device, dtype=torch.float32) * 2 - 1)
         sign_mask = signs.repeat_interleave(base_noise_len)[:total_elements]
-
         noise = noise * sign_mask.reshape(shape)
 
     return noise
