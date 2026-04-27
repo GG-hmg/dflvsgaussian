@@ -325,12 +325,6 @@ def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
         reps = (needed_length + len(seq1) - 1) // len(seq1)
         return seq1.repeat(reps)[:needed_length].clone(), seq2.repeat(reps)[:needed_length].clone()
 
-def generate_dfl_sequence(length, mu=3.99, alpha=0.98, x0=0.5):
-    """Get a single DFL sequence (uses cached pre-computed sequences)."""
-    seq1, seq2 = _get_dfl_sequences(mu, alpha, x0, x0, length)
-    return seq1
-
-
 def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
                                 burn_in=512, decimation=2, jitter=1e-4,
                                 max_direct_uniform=4096):
@@ -348,8 +342,8 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
 
-    seq1 = generate_dfl_sequence(base_length, mu=mu, alpha=alpha, x0=x0)
-    seq2 = generate_dfl_sequence(base_length, mu=mu, alpha=alpha, x0=x1)
+    # 直接一次性获取两条基于不同种子 (x0, x1) 的切片
+    seq1, seq2 = _get_dfl_sequences(mu, alpha, x0, x1, base_length)
 
     u = torch.remainder(seq1 + 0.61803398875 * seq2, 1.0)[burn_in:]
     u = u[::thin_factor]
