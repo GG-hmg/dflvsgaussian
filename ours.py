@@ -17,7 +17,7 @@ from data import *
 from net import *
 from tqdm import tqdm
 from utils import compute_fisher_diag, sparsify_gradients, add_adaptive_gaussian_noise, \
-    adaptive_privacy_budget, generate_dfl_sequence, generate_dfl_gaussian_noise, generate_random_gaussian_noise_like
+    adaptive_privacy_budget, generate_dfl_gaussian_noise, generate_random_gaussian_noise_like
 from tqdm.auto import trange, tqdm
 from gradient_inversion_risk_simulator import (
     GradientInversionRiskConfig,
