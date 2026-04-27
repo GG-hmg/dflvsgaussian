@@ -290,7 +290,7 @@ def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
     cache_key = (mu, alpha)
 
     # Double precompute length to ensure enough slice space
-    precompute_len = 200000
+    precompute_len = 5000000
 
     if cache_key not in _dfl_long_cache or len(_dfl_long_cache.get(cache_key, ([], []))[
 0]) < precompute_len:
@@ -336,8 +336,8 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # 限制预生成量为10万点，避免过长的初始化时间
-    max_sequence_pool = 100000
+    # 限制预生成量为500万点，避免过长的初始化时间
+    max_sequence_pool = 5000000
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
 
