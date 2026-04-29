@@ -563,6 +563,18 @@ def main():
                 print(f"原始数据加载失败: {str(e)}")
                 return
 
+        elif dataset == 'FashionMNIST':
+            print("使用FashionMNIST数据集...")
+            try:
+                clients_train_loaders, clients_test_loaders, client_data_sizes = get_FashionMNIST(args.dir_alpha,
+                                                                                             current_num_clients)
+                clients_models = [fashionmnistNet() for _ in range(current_num_clients)]
+                global_model = fashionmnistNet()
+                print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
+            except Exception as e:
+                print(f"原始数据加载失败: {str(e)}")
+                return
+
         else:
             print('不支持的数据集名称。')
             return

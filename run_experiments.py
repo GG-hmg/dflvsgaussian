@@ -33,20 +33,25 @@ class ExperimentRunner:
         # keep epsilon/sigma and core training settings aligned across DP methods.
         # Gaussian vs SCM only differ in noise generation mechanism.
         self.dataset_params = {
-            "CIFAR10": {
-                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.005", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "clipping_bound": "2.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.005", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "sigma_factor_dfl": "0.15", "clipping_bound": "2.5", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.82", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+            "FashionMNIST": {
+                "none": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.8", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "sigma_factor_dfl": "0.15", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.88", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
             "MNIST": {
-                "none": {"num_clients": "3", "batch_size": "64", "lr": "0.01", "target_epsilon": "8.0", "clipping_bound": "1.2", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.01", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.0035", "clipping_bound": "1.2", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.01", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.0035", "sigma_factor_dfl": "0.0035", "clipping_bound": "1.2", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.5", "dfl_mu": "3.99", "dfl_alpha": "0.98", "sparsity_ratio": "0.0"},
+                "none": {"num_clients": "3", "batch_size": "64", "lr": "0.001", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "clipping_bound": "1.8", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "sigma_factor_dfl": "0.15", "clipping_bound": "1.8", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.88", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
             "SVHN": {
-                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.01", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.01", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.0045", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.01", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.0045", "sigma_factor_dfl": "0.0045", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.5", "dfl_mu": "3.99", "dfl_alpha": "0.98", "sparsity_ratio": "0.0"},
+                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "clipping_bound": "2.2", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "sigma_factor_dfl": "0.15", "clipping_bound": "2.2", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.88", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+            },
+            "CIFAR10": {
+                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "clipping_bound": "2.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.15", "sigma_factor_dfl": "0.15", "clipping_bound": "2.5", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.88", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
         }
         self._validate_privacy_order()

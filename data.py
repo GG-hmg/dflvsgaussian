@@ -346,3 +346,38 @@ def get_EMNIST(num_clients):
         print("Client ", i + 1, " labels distribution: ", counter)
 
     return clients_train_loaders, clients_test_loaders, client_data_sizes
+
+
+# FashionMNIST-------------------------------------------------------------------------------------------------
+def get_FashionMNIST(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,))  # FashionMNIST 标准化
+    ])
+
+    data_path = './data/FashionMNIST'
+    download_flag = not os.path.exists(data_path) or len(os.listdir(data_path)) == 0
+
+    train_dataset = datasets.FashionMNIST(root=data_path, train=True, download=download_flag, transform=transform)
+    test_dataset = datasets.FashionMNIST(root=data_path, train=False, download=download_flag, transform=transform)
+
+    num_classes = len(np.unique(train_dataset.targets))
+
+    # 使用你现有的 hetero_dir_partition 进行联邦分区
+    train_partition = hetero_dir_partition(train_dataset.targets, num_clients, num_classes, alpha)
+
+    train_loaders = []
+    test_loaders = []
+    client_data_sizes = []
+
+    shared_test_loader = DataLoader(test_dataset, batch_size=256, shuffle=True)
+
+    for i in range(num_clients):
+        train_sampler = torch.utils.data.SubsetRandomSampler(train_partition[i])
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, drop_last=True)
+
+        train_loaders.append(train_loader)
+        test_loaders.append(shared_test_loader)
+        client_data_sizes.append(len(train_partition[i]))
+
+    return train_loaders, test_loaders, client_data_sizes

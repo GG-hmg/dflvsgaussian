@@ -15,6 +15,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def parse_output_file(output_path):
+    """从output文件解析训练过程数据"""
+    epochs = []
+    accuracies = []
+    anti_inversion_abilities = []
+
+    if not os.path.exists(output_path):
+        return epochs, accuracies, anti_inversion_abilities
+
+    with open(output_path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+
+        # 解析准确率历程
+        acc_pattern = r"平均准确率历程:\s*\[([^\]]+)\]"
+        acc_match = re.search(acc_pattern, content)
+        if acc_match:
+            acc_str = acc_match.group(1).replace('%', '').replace("'", "")
+            accuracies = [float(x.strip()) for x in acc_str.split(',') if x.strip()]
+            epochs = list(range(1, len(accuracies) + 1))
+
+        # 解析抗梯度反演能力历程
+        anti_pattern = r"抗梯度反演能力历程:\s*\[([^\]]+)\]"
+        anti_match = re.search(anti_pattern, content)
+        if anti_match:
+            anti_str = anti_match.group(1).replace('%', '').replace("'", "")
+            anti_inversion_abilities = [float(x.strip()) for x in anti_str.split(',') if x.strip()]
+
+    return epochs, accuracies, anti_inversion_abilities
+
+
 def parse_live_log(log_path):
     """从live log文件解析训练过程数据"""
     epochs = []
@@ -78,6 +108,15 @@ def read_experiment_output(output_path):
         if alpha_match:
             results['dfl_alpha'] = float(alpha_match.group(1))
 
+        decimation_match = re.search(r'dfl_decimation[:\s=]+([\d.]+)', content)
+        if decimation_match:
+            results['dfl_decimation'] = int(decimation_match.group(1))
+        else:
+            # 从命令行参数中解析
+            cmd_decimation = re.search(r'--dfl_decimation\s+([\d.]+)', content)
+            if cmd_decimation:
+                results['dfl_decimation'] = int(cmd_decimation.group(1))
+
         clip_match = re.search(r'裁剪边界[:\s]+([\d.]+)', content)
         if clip_match:
             results['clipping_bound'] = float(clip_match.group(1))
@@ -88,9 +127,15 @@ def read_experiment_output(output_path):
 def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output, save_path, params):
     """绘制对比图"""
 
-    # 解析数据
-    dfl_epochs, dfl_accs, dfl_anti = parse_live_log(dfl_log) if os.path.exists(dfl_log) else ([], [], [])
-    gauss_epochs, gauss_accs, gauss_anti = parse_live_log(gaussian_log) if os.path.exists(gaussian_log) else ([], [], [])
+    # 优先从output文件解析数据（包含完整历程）
+    dfl_epochs, dfl_accs, dfl_anti = parse_output_file(dfl_output)
+    gauss_epochs, gauss_accs, gauss_anti = parse_output_file(gaussian_output)
+
+    # 如果output文件解析失败，回退到live log
+    if not dfl_accs and os.path.exists(dfl_log):
+        dfl_epochs, dfl_accs, dfl_anti = parse_live_log(dfl_log)
+    if not gauss_accs and os.path.exists(gaussian_log):
+        gauss_epochs, gauss_accs, gauss_anti = parse_live_log(gaussian_log)
 
     # 读取最终结果
     dfl_results = read_experiment_output(dfl_output) if os.path.exists(dfl_output) else {}
@@ -131,11 +176,13 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax2.set_ylim([0, 1.2])
 
     # 修改参数信息框
-    param_text = f"Params: σ={params.get('sigma', 'N/A')}, Chaotic={params.get('chaotic_factor', 'N/A')}, α={params.get('dfl_alpha', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
+    param_text = f"Params: σ={params.get('sigma', 'N/A')}, Chaotic={params.get('chaotic_factor', 'N/A')}, α={params.get('dfl_alpha', 'N/A')}, Gap={params.get('dfl_decimation', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
 
     # 修改最终结果框
+    decimation_val = params.get('dfl_decimation', 'N/A')
     result_text = (f"DFL: Acc={dfl_results.get('final_accuracy', 'N/A')}% / Anti-Inv={dfl_results.get('anti_inversion', 'N/A')}  |  "
-                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% / Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}")
+                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% / Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}  |  "
+                   f"Gap={decimation_val}")
 
     # 将参数和结果放在整个 Figure 的底部
     fig.text(0.5, 0.02, param_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
