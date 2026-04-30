@@ -280,50 +280,41 @@ def get_dataset_complexity_factor(name):
 
 # ==================== DFL (Discrete Fractional Logistic) ====================
 # Pre-computed long sequences for fast reuse
-_dfl_long_cache = {}  # key: (mu, alpha), value: (seq1, seq2) tuple
-_DFL_PRECOMPUTE_LENGTH = 200000  # 限制预生成量为20万点，提供足够的切片空间
+_dfl_long_cache = {}  # key: (mu, alpha), value: single seq tensor
 
 def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
     cache_key = (mu, alpha)
-    precompute_len = 5000000  # 【水库总容量】：500 万
 
-    # 如果没有缓存，使用纯 Python 列表进行极速生成（只需约1秒）
-    if cache_key not in _dfl_long_cache or len(_dfl_long_cache.get(cache_key, ([], []))[0]) < precompute_len:
-        print(f"\n[INFO] 正在极速预生成 {precompute_len} 步混沌池，请稍候约1-2秒...")
-        x_list = [0.0] * precompute_len
-        y_list = [0.0] * precompute_len
-        x_list[0] = float(x0) % 1.0
-        y_list[0] = float(x1) % 1.0
+    # 【终极修复】：动态计算安全的水库容量
+    # 保证水库容量至少是需要的 3 倍，这样 start_idx 有至少 2 倍于 needed_length 的随机游走空间，彻底消除重叠污染！
+    safe_multiplier = 3
+    precompute_len = max(20000000, needed_length * safe_multiplier) # 至少2000万，或者更大
 
-        mu_f, alpha_f = float(mu), float(alpha)
-        oma = 1.0 - alpha_f
+    if cache_key not in _dfl_long_cache or len(_dfl_long_cache[cache_key]) < precompute_len:
+        print(f"🌊 [DFL] 正在构建 {precompute_len/1000000:.1f}M 容量的动态混沌水库，请稍候...")
+        seq = [0.0] * precompute_len
+        x_curr = x0
+        x_prev = x1
 
-        for n in range(precompute_len - 1):
-            prev = n - 1 if n > 0 else 0
-            xn, yn = x_list[n], y_list[n]
-            xp, yp = x_list[prev], y_list[prev]
-            # 纯浮点运算，无调度开销
-            x_list[n + 1] = (alpha_f * mu_f * xn * (1.0 - xn) + oma * xp) % 1.0
-            y_list[n + 1] = (alpha_f * mu_f * yn * (1.0 - yn) + oma * yp) % 1.0
+        # 纯净的混沌生成（没有任何平铺和随机符号污染）
+        for i in range(precompute_len):
+            x_next = (alpha * mu * x_curr * (1 - x_curr) + (1 - alpha) * x_prev) % 1.0
+            seq[i] = x_next
+            x_prev = x_curr
+            x_curr = x_next
 
-        _dfl_long_cache[cache_key] = (
-            torch.tensor(x_list, dtype=torch.float64),
-            torch.tensor(y_list, dtype=torch.float64)
-        )
-        print("[INFO] 混沌池极速生成完毕！")
+        _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float32)
+        print("🌊 [DFL] 动态水库构建完成！")
 
-    seq1, seq2 = _dfl_long_cache[cache_key]
+    # 安全的随机锚点
+    seq_tensor = _dfl_long_cache[cache_key]
+    max_start = max(1, len(seq_tensor) - needed_length)
 
-    # 安全切片：确保需要长度不会超过水库
-    if needed_length < len(seq1):
-        start_idx1 = int((float(x0) * 104729) % max(1, len(seq1) - needed_length))
-        start_idx2 = int((float(x1) * 104729) % max(1, len(seq2) - needed_length))
-        return seq1[start_idx1:start_idx1 + needed_length].clone(), \
-               seq2[start_idx2:start_idx2 + needed_length].clone()
-    else:
-        # 理论上不会走到这里，加了保险
-        reps = (needed_length + len(seq1) - 1) // len(seq1)
-        return seq1.repeat(reps)[:needed_length].clone(), seq2.repeat(reps)[:needed_length].clone()
+    # 巧妙利用 x0, x1 生成一个确定性的伪随机大整数，避免引入外部 torch.rand
+    pseudo_random_int = int((x0 * 13579 + x1 * 97531) * 1000000)
+    start_idx = pseudo_random_int % max_start
+
+    return seq_tensor[start_idx : start_idx + needed_length]
 
 def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
                                 burn_in=512, decimation=2, jitter=1e-4,
@@ -342,10 +333,11 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
 
-    # 直接一次性获取两条基于不同种子 (x0, x1) 的切片
-    seq1, seq2 = _get_dfl_sequences(mu, alpha, x0, x1, base_length)
+    # 直接一次性获取基于不同种子 (x0, x1) 的切片
+    seq = _get_dfl_sequences(mu, alpha, x0, x1, base_length)
 
-    u = torch.remainder(seq1 + 0.61803398875 * seq2, 1.0)[burn_in:]
+    # 使用 golden ratio 混合生成均匀分布
+    u = torch.remainder(seq + 0.61803398875 * torch.roll(seq, shift=7, dims=0), 1.0)[burn_in:]
     u = u[::thin_factor]
 
     if jitter > 0:
