@@ -266,7 +266,7 @@ def add_adaptive_gaussian_noise(gradients, client_epsilon, delta,
                 std = noise.std()
                 if std > 0: noise = (noise / std) * sigma
                 noisy_gradients.append(clipped_grad + noise)
-            except:
+            except Exception:
                 noisy_gradients.append(clipped_grad + generate_random_gaussian_noise_like(clipped_grad) * sigma)
         else:
             noisy_gradients.append(clipped_grad + (generate_random_gaussian_noise_like(clipped_grad) * sigma if sigma > 0 else 0))
@@ -291,7 +291,7 @@ def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
     precompute_len = max(20000000, needed_length * safe_multiplier) # 至少2000万，或者更大
 
     if cache_key not in _dfl_long_cache or len(_dfl_long_cache[cache_key]) < precompute_len:
-        print(f"🌊 [DFL] 正在构建 {precompute_len/1000000:.1f}M 容量的动态混沌水库，请稍候...")
+        print(f"[DFL] Building dynamic reservoir of {precompute_len/1000000:.1f}M capacity, please wait...")
         seq = [0.0] * precompute_len
         x_curr = x0
         x_prev = x1
@@ -304,7 +304,7 @@ def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
             x_curr = x_next
 
         _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float32)
-        print("🌊 [DFL] 动态水库构建完成！")
+        print("[DFL] Dynamic reservoir build completed!")
 
     # 安全的随机锚点
     seq_tensor = _dfl_long_cache[cache_key]
@@ -326,9 +326,8 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # 【关键修复点：抽水桶上限】：每次最多只取 200 万个点。
-    # 这样给 500 万的水库留出了整整 300 万的随机滑动窗口，恢复真正的随机性！
-    # 同时 200 万的内存开销远低于 500 万，彻底消除内存抖动。
+    # Cap per-call sequence length at 2M to stay within the dynamic reservoir's
+    # safe random-walk space (reservoir is at least 3x this per _get_dfl_sequences).
     max_sequence_pool = 2000000
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
@@ -337,7 +336,7 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     seq = _get_dfl_sequences(mu, alpha, x0, x1, base_length)
 
     # 使用 golden ratio 混合生成均匀分布
-    u = torch.remainder(seq + 0.61803398875 * torch.roll(seq, shift=7, dims=0), 1.0)[burn_in:]
+    u = torch.remainder(seq + 0.61803398875 * torch.roll(seq, 7, 0), 1.0)[burn_in:]
     u = u[::thin_factor]
 
     if jitter > 0:
