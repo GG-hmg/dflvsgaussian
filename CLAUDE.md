@@ -8,9 +8,27 @@ DynamicPFL is a research project studying **Discrete Fractional Logistic (DFL) c
 
 Current focus: **Pure DFL (chaotic_factor=1.0) vs Gaussian noise comparison**
 
+## Critical Platform Constraints
+
+- **Python path**: Always use `/d/anaconda/envs/pp/python.exe` — the system `python` has no torch
+- **GBK encoding**: Windows console uses GBK — **NEVER use emojis in print statements**, they will crash experiments with `'gbk' codec can't encode character`
+- **No parallel experiments**: Always let one experiment finish before starting the next
+
+## Common Commands
+
+```bash
+# Batch comparison (DFL then Gaussian, sequential)
+/d/anaconda/envs/pp/python.exe run_experiments.py --datasets MNIST --dp_methods dfl gaussian --num_runs 1 --epochs 60
+
+# Single dataset, single method
+/d/anaconda/envs/pp/python.exe ours.py --dataset MNIST --dp_method dfl --global_epoch 60 ...
+
+# Generate comparison chart
+/d/anaconda/envs/pp/python.exe plot_experiment_results.py --dataset MNIST --run_id 1
+```
+
 ## Architecture
 
-### Federated Learning Pipeline
 ```
 Global Model → Local Training (Client)
               ↓
@@ -25,58 +43,71 @@ Global Model → Local Training (Client)
 
 ### Key Modules
 
-**utils.py** - Chaotic Noise Engine
-- `generate_dfl_sequence()`: Core DFL map iteration
-- `generate_dfl_gaussian_noise()`: Combines two DFL sequences, applies Ziggurat sampling
-- `generate_ziggurat_gaussian_noise()`: Vectorized inverse-CDF sampling via `torch.erfinv()`
-- **Security fix**: Block sign flip for zero-mean noise
+**utils.py** — Chaotic Noise Engine
+- `_get_dfl_sequences()`: Core DFL map. **Dynamic elastic reservoir** — pool size = `max(20M, needed_length * 3)` to eliminate sequence overlap contamination. Single sequence with deterministic pseudo-random start_idx from x0/x1. Cache key: `(mu, alpha)`.
+- `generate_dfl_gaussian_noise()`: Gets 1 sequence via `_get_dfl_sequences`, then mixes with golden ratio roll: `seq + 0.618 * torch.roll(seq, 7, 0)`. Applies burn-in, decimation, jitter, degeneracy check, Ziggurat sampling. Block sign flip for zero-mean on tiled segments.
+- `generate_ziggurat_gaussian_noise()`: Vectorized inverse-CDF via `torch.erfinv()`
+- `add_adaptive_gaussian_noise()`: Client-side DP noise injection with adaptive clipping
 
-**ours.py** - Main Training Loop
-- `local_update_with_dp()`: Client-side training with DP defense
-- DFL noise mixing: `sqrt(chaotic_factor) * DFL_noise + sqrt(1-chaotic_factor) * Gaussian_noise`
-- **Secondary clipping (line 359-366)**: After adding DFL noise, applies post-norm clipping to prevent gradient explosion
-- Integrates with `gradient_inversion_risk_simulator.py` for real-time risk evaluation
+**ours.py** — Main Training Pipeline
+- `local_update_with_dp()`: Client training with DP defense
+- `generate_chaotic_noise_v2()`: Thin wrapper calling `generate_dfl_gaussian_noise()`
+- Post-norm clipping after noise injection to prevent gradient explosion
+- Integrates with `gradient_inversion_risk_simulator.py`
 
-**gradient_inversion_risk_simulator.py** - Privacy Evaluator
+**gradient_inversion_risk_simulator.py** — Privacy Evaluator
 - `simulate_gradient_inversion_risk()`: Gradient inversion attack simulator
-- Computes "Anti-Inversion Ability" / defense_score (higher = better privacy)
+- "Anti-Inversion Ability" — defense score (higher = better privacy)
 
-**run_experiments.py** - Batch Experiment Runner
-- Runs comparative experiments across datasets
+**run_experiments.py** — Batch Experiment Runner
+- Dataset-specific param dicts (all 4 datasets aligned for fair comparison)
+- Validates sigma/epsilon equality between gaussian and dfl groups
 - Outputs to `experiment_results/`
 
-## Common Commands
+**data.py** — Federated Data Loading
+- Datasets: MNIST (IID partition), FashionMNIST/SVHN/CIFAR10 (hetero_dir_partition)
+- FEMNIST support is broken (TensorFlow dependency removed)
 
-### Batch Comparison
-```bash
-python run_experiments.py --datasets CIFAR10 --dp_methods dfl gaussian --num_runs 1 --epochs 60
-```
+**net.py** — Model Architectures
+- MNIST/fEMNIST: `mnistNet` (2 conv + 2 fc, 62-class output)
+- CIFAR10: `cifar10Net` (3 conv + 3 fc)
+- SVHN: `SVHNNet` (2 conv + 2 fc)
+- FashionMNIST: `fashionmnistNet` (2 conv + 2 fc, grayscale 10-class)
 
-## Key Parameters
+**plot_experiment_results.py** — Visualization
+- Reads from `experiment_results/` output files
+- Generates accuracy + anti-inversion comparison charts
+- `parse_output_file()` extracts training history, `parse_live_log()` as fallback
 
-| Parameter | Range | Purpose |
-|-----------|-------|---------|
-| `--chaotic_factor` | [0, 1] | Mix ratio: 0=Gaussian, 1=DFL |
-| `--sigma_factor_dfl` | > 0 | Noise intensity |
-| `--dfl_alpha` | (0, 1] | Memory depth (higher=more memory) |
-| `--dfl_mu` | [3.57, 4.0] | Chaos level (higher=more chaotic) |
-| `--dfl_decimation` | ≥1 | Gap factor for correlation breaking |
-| `--clipping_bound` | > 0 | Gradient clipping threshold |
+## Current Experiment Parameters
 
-## DFL Implementation Details
+All 4 datasets use aligned parameters for fair DFL vs Gaussian comparison:
 
-The DFL noise generation (`utils.py:generate_dfl_gaussian_noise`):
+| Parameter | Value |
+|-----------|-------|
+| `sigma_factor` | 0.10 (both gaussian and dfl) |
+| `clipping_bound` | 2.0 |
+| `dfl_alpha` | 0.85 |
+| `dfl_decimation` (gap) | 12 |
+| `dfl_mu` | 3.99 |
+| `dfl_burn_in` | 2048 |
+| `chaotic_factor` | 1.0 (pure DFL) |
+| `target_epsilon` | 8.0 |
+| `epochs` | 60 |
 
-1. **Generate two DFL sequences** with different seeds (x0, x1)
-2. **Mix sequences**: `u = (seq1 + 0.618 * seq2) % 1.0` (golden ratio)
-3. **Apply burn-in**: discard initial samples
-4. **Apply decimation (gap)**: break fractional-order correlation
-5. **Add jitter**: prevent ties
-6. **Degeneracy check**: inject noise if too few bins occupied
-7. **Block sign flip**: ensure zero-mean for tiled segments
-8. **Ziggurat sampling**: `sqrt(2) * erfinv(2u-1)` → Gaussian
+## DFL Reservoir Details
+
+The elastic reservoir (`utils.py:_get_dfl_sequences`):
+
+1. Pool size dynamically computed: `max(20M, needed_length * 3)`
+2. Pure Python list generation (fast, ~2s for 20M points)
+3. Single sequence — no dual-sequence correlation issues
+4. Deterministic pseudo-random start_idx from `(x0*13579 + x1*97531) * 1e6`
+5. `start_idx` has at least `2 * needed_length` random space — eliminates overlap
+6. Golden ratio mixing via `torch.roll(seq, 7, 0)` for uniform distribution
 
 ## Output Files
 
-- `experiment_results/{dataset}_{method}_run{N}_output.txt`: Full metrics
+- `experiment_results/{dataset}_{method}_run{N}_output.txt`: Full metrics + training history
 - `experiment_results/{dataset}_{method}_run{N}_live.log`: Live training log
+- `experiment_results/comparison_{dataset}_*.png`: Comparison charts (ignored by gitignore — use `-f` to add)
