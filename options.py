@@ -57,10 +57,12 @@ def parse_args():
                         help="Chaotic noise strength factor (default: 0.3)")
 
     # DFL (Discrete Fractional Logistic) 参数
-    parser.add_argument('--dfl_mu', type=float, default=3.99,
-                        help="DFL control parameter mu [3.57, 4] (default: 3.99)")
-    parser.add_argument('--dfl_alpha', type=float, default=0.85,
-                        help="DFL fractional order alpha (0, 1] (default: 0.85)")
+    parser.add_argument('--dfl_a', type=float, default=4.0,
+                help='DFL control parameter a (default: 4.0)')
+    parser.add_argument('--dfl_b', type=float, default=501.0,
+                help='DFL feedback parameter b (default: 501.0)')
+    parser.add_argument('--dfl_k', type=int, default=7,
+                help='DFL delay steps k (default: 7)')
     parser.add_argument('--dfl_burn_in', type=int, default=2048,
                         help="Burn-in steps before using DFL samples (default: 2048)")
     parser.add_argument('--dfl_jitter', type=float, default=1e-4,

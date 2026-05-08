@@ -36,22 +36,22 @@ class ExperimentRunner:
             "FashionMNIST": {
                 "none": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.8", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
                 "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.85", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "7", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
             "MNIST": {
                 "none": {"num_clients": "3", "batch_size": "64", "lr": "0.001", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
                 "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.85", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "7", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
             "SVHN": {
                 "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
                 "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.85", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "7", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
             "CIFAR10": {
                 "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
                 "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_mu": "3.99", "dfl_alpha": "0.85", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
+                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.10", "sigma_factor_dfl": "0.10", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "7", "dfl_burn_in": "2048", "dfl_decimation": "12", "sparsity_ratio": "0.0"},
             },
         }
         self._validate_privacy_order()
@@ -179,16 +179,18 @@ class ExperimentRunner:
                     "--use_chaotic",
                     "--chaotic_factor",
                     params.get("chaotic_factor", "0.3"),
-                    "--dfl_mu",
-                    params.get("dfl_mu", "3.99"),
-                    "--dfl_alpha",
-                    params.get("dfl_alpha", "0.98"),
+                    "--dfl_a",
+                    params.get("dfl_a", "4.0"),
+                    "--dfl_b",
+                    params.get("dfl_b", "501.0"),
+                    "--dfl_k",
+                    params.get("dfl_k", "7"),
                     "--dfl_burn_in",
                     params.get("dfl_burn_in", "512"),
                     "--dfl_max_direct_uniform",
                     "4096",
                     "--dfl_decimation",
-                    params.get("dfl_decimation", "2"),
+                    params.get("dfl_decimation", "12"),
                 ]
             )
 

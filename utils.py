@@ -249,16 +249,14 @@ def add_adaptive_gaussian_noise(gradients, client_epsilon, delta,
                 torch.manual_seed(seed)
                 random.seed(seed)
 
-                # 获取 DFL 间隙参数
-                dfl_decimation = getattr(args, 'dfl_decimation', 2)
-
                 noise = generate_dfl_gaussian_noise(
                     grad.shape,
-                    mu=getattr(args, 'dfl_mu', 3.99),
-                    alpha=getattr(args, 'dfl_alpha', 0.98),
-                    x0=random.random(), x1=random.random(),
-                    burn_in=getattr(args, 'dfl_burn_in', 512),
-                    decimation=dfl_decimation, # 传入间隙
+                    a=getattr(args, 'dfl_a', 4.0),
+                    b=getattr(args, 'dfl_b', 501.0),
+                    k=getattr(args, 'dfl_k', 7),
+                    x0=random.random(),
+                    burn_in=getattr(args, 'dfl_burn_in', 2048),
+                    decimation=getattr(args, 'dfl_decimation', 12),
                     jitter=getattr(args, 'dfl_jitter', 1e-4),
                     max_direct_uniform=getattr(args, 'dfl_max_direct_uniform', 4096)
                 ).to(grad_device)
@@ -280,44 +278,49 @@ def get_dataset_complexity_factor(name):
 
 # ==================== DFL (Discrete Fractional Logistic) ====================
 # Pre-computed long sequences for fast reuse
-_dfl_long_cache = {}  # key: (mu, alpha), value: single seq tensor
+_dfl_long_cache = {}  # key: (a, b, k), value: single seq tensor
 
-def _get_dfl_sequences(mu, alpha, x0, x1, needed_length):
-    cache_key = (mu, alpha)
+def _get_dfl_sequences(a, b, k, seed_val, needed_length):
+    cache_key = (a, b, k)
 
-    # 【终极修复】：动态计算安全的水库容量
-    # 保证水库容量至少是需要的 3 倍，这样 start_idx 有至少 2 倍于 needed_length 的随机游走空间，彻底消除重叠污染！
+    # Dynamic safe reservoir: at least 3x needed_length to eliminate overlap
     safe_multiplier = 3
-    precompute_len = max(20000000, needed_length * safe_multiplier) # 至少2000万，或者更大
+    precompute_len = max(20000000, needed_length * safe_multiplier)
 
     if cache_key not in _dfl_long_cache or len(_dfl_long_cache[cache_key]) < precompute_len:
-        print(f"[DFL] Building dynamic reservoir of {precompute_len/1000000:.1f}M capacity, please wait...")
-        seq = [0.0] * precompute_len
-        x_curr = x0
-        x_prev = x1
+        print(f"[DFL] Building {precompute_len/1000000:.1f}M reservoir (a={a}, b={b}, k={k})...")
 
-        # 纯净的混沌生成（没有任何平铺和随机符号污染）
+        # Initialize k-step history buffer
+        history = [(seed_val + i * 0.1) % 1.0 for i in range(k)]
+        seq = [0.0] * precompute_len
+
+        # Core formula: x(n+1) = mod(a * x(n)*(1-x(n)) + b * x(n-k), 1.0)
         for i in range(precompute_len):
-            x_next = (alpha * mu * x_curr * (1 - x_curr) + (1 - alpha) * x_prev) % 1.0
+            x_n = history[-1]
+            x_n_minus_k = history[0]
+
+            x_next = (a * x_n * (1.0 - x_n) + b * x_n_minus_k) % 1.0
+
             seq[i] = x_next
-            x_prev = x_curr
-            x_curr = x_next
+
+            # Slide history window
+            history.pop(0)
+            history.append(x_next)
 
         _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float32)
-        print("[DFL] Dynamic reservoir build completed!")
+        print("[DFL] Reservoir build completed!")
 
-    # 安全的随机锚点
     seq_tensor = _dfl_long_cache[cache_key]
     max_start = max(1, len(seq_tensor) - needed_length)
 
-    # 巧妙利用 x0, x1 生成一个确定性的伪随机大整数，避免引入外部 torch.rand
-    pseudo_random_int = int((x0 * 13579 + x1 * 97531) * 1000000)
+    # Deterministic pseudo-random start index
+    pseudo_random_int = int(seed_val * 1000000)
     start_idx = pseudo_random_int % max_start
 
     return seq_tensor[start_idx : start_idx + needed_length]
 
-def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
-                                burn_in=512, decimation=2, jitter=1e-4,
+def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
+                                burn_in=2048, decimation=12, jitter=1e-4,
                                 max_direct_uniform=4096):
     total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
     if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
@@ -326,17 +329,16 @@ def generate_dfl_gaussian_noise(shape, mu=3.99, alpha=0.98, x0=0.5, x1=0.6,
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # Cap per-call sequence length at 2M to stay within the dynamic reservoir's
-    # safe random-walk space (reservoir is at least 3x this per _get_dfl_sequences).
+    # Cap per-call sequence length at 2M
     max_sequence_pool = 2000000
     base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
     base_length = max(32, base_length)
 
-    # 直接一次性获取基于不同种子 (x0, x1) 的切片
-    seq = _get_dfl_sequences(mu, alpha, x0, x1, base_length)
+    # Call new engine with (a, b, k). k-step delay is built-in, no torch.roll needed.
+    seq = _get_dfl_sequences(a, b, k, x0, base_length)
 
-    # 使用 golden ratio 混合生成均匀分布
-    u = torch.remainder(seq + 0.61803398875 * torch.roll(seq, 7, 0), 1.0)[burn_in:]
+    # Direct extraction with Gap (decimation), no external mixing needed
+    u = seq[burn_in:]
     u = u[::thin_factor]
 
     if jitter > 0:

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import builtins
 
@@ -144,7 +144,7 @@ if args.store == True:
         print(f"隐私预算ε: {target_epsilon}")
         print(f"裁剪边界: {clipping_bound}")
         if args.dp_method == 'dfl':
-            print(f"混沌系统: DFL(mu={args.dfl_mu}, alpha={args.dfl_alpha})")
+            print(f"混沌系统: DFL(a={args.dfl_a}, b={args.dfl_b}, k={args.dfl_k})")
             print(f"混沌因子: {args.chaotic_factor}, 衰减率: {args.chaotic_decay}")
             print(f"抽取间隔: {args.dfl_decimation}")
         print("=" * 50)
@@ -160,25 +160,23 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     """
     改进的混沌噪声生成 - 使用DFL (Discrete Fractional Logistic) 混沌映射
     """
-    mu = getattr(args, 'dfl_mu', 3.99)
-    alpha = getattr(args, 'dfl_alpha', 0.98)
-    decimation = getattr(args, 'dfl_decimation', 2)
-    burn_in = getattr(args, 'dfl_burn_in', 512)
+    a = getattr(args, 'dfl_a', 4.0)
+    b = getattr(args, 'dfl_b', 501.0)
+    k = getattr(args, 'dfl_k', 7)
+    decimation = getattr(args, 'dfl_decimation', 12)
+    burn_in = getattr(args, 'dfl_burn_in', 2048)
     jitter = getattr(args, 'dfl_jitter', 1e-4)
     max_direct_uniform = getattr(args, 'dfl_max_direct_uniform', 4096)
 
     seed_value = (client_id * 1000 + epoch * 100 + batch_idx) % 10000
     np.random.seed(seed_value)
 
-    x0 = np.random.random()
-    x1 = np.random.random()
-
     chaotic_noise = generate_dfl_gaussian_noise(
         shape,
-        mu=mu,
-        alpha=alpha,
-        x0=x0,
-        x1=x1,
+        a=a,
+        b=b,
+        k=k,
+        x0=np.random.random(),
         decimation=decimation,
         burn_in=burn_in,
         jitter=jitter,
