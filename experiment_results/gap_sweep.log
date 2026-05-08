@@ -1,0 +1,10 @@
+[2026-05-07 15:15:44] Starting CIFAR10 Gap sweep: 3 experiments
+[2026-05-07 15:15:44] [1/3] CIFAR10 gap=6
+[2026-05-07 20:17:24] [1/3] CIFAR10 gap=6 DONE (301.7 min)
+[2026-05-07 20:17:24] [2/3] CIFAR10 gap=12
+[2026-05-07 20:18:29] Starting CIFAR10 Gap sweep: 2 experiments
+[2026-05-07 20:18:29] [1/2] CIFAR10 gap=12
+[2026-05-08 01:19:52] [1/2] CIFAR10 gap=12 DONE (301.4 min)
+[2026-05-08 01:19:52] [2/2] CIFAR10 gap=24
+[2026-05-08 06:24:10] [2/2] CIFAR10 gap=24 DONE (304.3 min)
+[2026-05-08 06:24:10] Gap sweep complete
