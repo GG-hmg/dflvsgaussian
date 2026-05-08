@@ -30,9 +30,11 @@ def build_chaotic_gaussian(num_samples: int) -> np.ndarray:
     chaotic = generate_dfl_gaussian_noise(
         shape=torch.Size([num_samples]),
         mu=3.99,
-        alpha=0.98,
+        alpha=0.85,
         x0=random.random(),
         x1=random.random(),
+        burn_in=2048,
+        decimation=12,
     )
     return chaotic.detach().cpu().numpy()
 
