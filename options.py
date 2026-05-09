@@ -12,7 +12,7 @@ def parse_args():
 
     parser.add_argument('--target_epsilon', type=float, default=1, help="Target privacy budget epsilon")
     parser.add_argument('--target_delta', type=float, default=1e-1, help="Target privacy budget delta")
-    parser.add_argument('--clipping_bound', type=float, default=1.5, help="Gradient clipping bound")
+    parser.add_argument('--clipping_bound', type=float, default=2.0, help="Gradient clipping bound")
 
     parser.add_argument('--fisher_threshold', type=float, default=0.4,
                         help="Fisher information threshold for parameter selection")
@@ -82,9 +82,9 @@ def parse_args():
                         help="Differential privacy method: none, gaussian, dfl")
 
     # 新增：各DP方法的噪声因子
-    parser.add_argument('--sigma_factor_gaussian', type=float, default=0.10,
+    parser.add_argument('--sigma_factor_gaussian', type=float, default=0.15,
                         help="Noise multiplier factor for Gaussian DP (default: 0.10)")
-    parser.add_argument('--sigma_factor_dfl', type=float, default=0.10,
+    parser.add_argument('--sigma_factor_dfl', type=float, default=0.15,
                         help="Noise multiplier factor for DFL DP (default: 0.10)")
 
     # Gradient inversion risk simulator (paper-style attack/reconstruction evaluation)

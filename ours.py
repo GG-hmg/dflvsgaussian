@@ -388,9 +388,10 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                         + local_epoch_idx * 100
                         + batch_idx
                     ),
-                    dfl_mu=float(getattr(args, 'dfl_mu', 3.99)),
-                    dfl_alpha=float(getattr(args, 'dfl_alpha', 0.98)),
-                    dfl_burn_in=int(getattr(args, 'dfl_burn_in', 512)),
+                    dfl_a=float(getattr(args, 'dfl_a', 4.0)),
+                    dfl_b=float(getattr(args, 'dfl_b', 501.0)),
+                    dfl_k=int(getattr(args, 'dfl_k', 7)),
+                    dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
                     dfl_jitter=float(getattr(args, 'dfl_jitter', 1e-4)),
                     dfl_max_direct_uniform=int(getattr(args, 'dfl_max_direct_uniform', 4096)),
                 )

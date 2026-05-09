@@ -36,9 +36,10 @@ class DefenseSimulationConfig:
     chaotic_factor: float = 0.0
     sparsity_ratio: float = 0.0
     seed_context: int = 0
-    dfl_mu: float = 3.99
-    dfl_alpha: float = 0.98
-    dfl_burn_in: int = 512
+    dfl_a: float = 4.0
+    dfl_b: float = 501.0
+    dfl_k: int = 7
+    dfl_burn_in: int = 2048
     dfl_jitter: float = 1e-4
     dfl_max_direct_uniform: int = 4096
 
@@ -119,13 +120,13 @@ def _generate_chaotic_flat_noise(numel: int, cfg: DefenseSimulationConfig, devic
     if numel <= 0:
         return torch.zeros(0, device=device)
     rng = random.Random(int(cfg.seed_context))
-    x0, x1 = rng.random(), rng.random()
+    x0 = rng.random()
     flat_chaotic = generate_dfl_gaussian_noise(
         torch.Size([numel]),
-        mu=float(cfg.dfl_mu),
-        alpha=float(cfg.dfl_alpha),
+        a=float(cfg.dfl_a),
+        b=float(cfg.dfl_b),
+        k=int(cfg.dfl_k),
         x0=float(x0),
-        x1=float(x1),
         burn_in=int(cfg.dfl_burn_in),
         jitter=float(cfg.dfl_jitter),
         max_direct_uniform=int(cfg.dfl_max_direct_uniform),
