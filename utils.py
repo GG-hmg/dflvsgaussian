@@ -71,7 +71,7 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
     u = uniform_sequence.reshape(-1)[:total_elements].to(dtype=torch.float32)
     u = torch.clamp(u, min=1e-6, max=1.0 - 1e-6)
     noise = math.sqrt(2.0) * torch.erfinv(2.0 * u - 1.0)
-    noise = noise.reshape(shape).to(dtype=torch.float32)
+    noise = noise.reshape(shape).to(dtype=torch.float64)
     return noise.to(uniform_sequence.device)
 
 
@@ -307,7 +307,7 @@ def _get_dfl_sequences(a, b, k, seed_val, needed_length):
             history.pop(0)
             history.append(x_next)
 
-        _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float32)
+        _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float64)
         print("[DFL] Reservoir build completed!")
 
     seq_tensor = _dfl_long_cache[cache_key]
@@ -365,7 +365,7 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
-    noise = generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float32)
+    noise = generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float64)
 
     # 符号翻转保平安
     if needs_sign_flip:
