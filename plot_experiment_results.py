@@ -104,9 +104,15 @@ def read_experiment_output(output_path):
         if chaotic_match:
             results['chaotic_factor'] = float(chaotic_match.group(1))
 
-        alpha_match = re.search(r'dfl_alpha[:\s=]+([\d.]+)', content)
-        if alpha_match:
-            results['dfl_alpha'] = float(alpha_match.group(1))
+        a_match = re.search(r'dfl_a[:\s=]+([\d.]+)', content)
+        if a_match:
+            results['dfl_a'] = float(a_match.group(1))
+        b_match = re.search(r'dfl_b[:\s=]+([\d.]+)', content)
+        if b_match:
+            results['dfl_b'] = float(b_match.group(1))
+        k_match = re.search(r'dfl_k[:\s=]+([\d]+)', content)
+        if k_match:
+            results['dfl_k'] = int(k_match.group(1))
 
         decimation_match = re.search(r'dfl_decimation[:\s=]+([\d.]+)', content)
         if decimation_match:
@@ -176,7 +182,7 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax2.set_ylim([0, 1.2])
 
     # 修改参数信息框
-    param_text = f"Params: σ={params.get('sigma', 'N/A')}, Chaotic={params.get('chaotic_factor', 'N/A')}, α={params.get('dfl_alpha', 'N/A')}, Gap={params.get('dfl_decimation', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
+    param_text = f"Params: sigma={params.get('sigma', 'N/A')}, a={params.get('dfl_a', 'N/A')}, b={params.get('dfl_b', 'N/A')}, k={params.get('dfl_k', 'N/A')}, Gap={params.get('dfl_decimation', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
 
     # 修改最终结果框
     decimation_val = params.get('dfl_decimation', 'N/A')
