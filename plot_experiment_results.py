@@ -113,6 +113,9 @@ def read_experiment_output(output_path):
         k_match = re.search(r'dfl_k[:\s=]+([\d]+)', content)
         if k_match:
             results['dfl_k'] = int(k_match.group(1))
+        burn_in_match = re.search(r'dfl_burn_in[:\s=]+([\d]+)', content)
+        if burn_in_match:
+            results['dfl_burn_in'] = int(burn_in_match.group(1))
 
         decimation_match = re.search(r'dfl_decimation[:\s=]+([\d.]+)', content)
         if decimation_match:
@@ -182,13 +185,18 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax2.set_ylim([0, 1.2])
 
     # 修改参数信息框
-    param_text = f"Params: sigma={params.get('sigma', 'N/A')}, a={params.get('dfl_a', 'N/A')}, b={params.get('dfl_b', 'N/A')}, k={params.get('dfl_k', 'N/A')}, Gap={params.get('dfl_decimation', 'N/A')}, Clip={params.get('clipping_bound', 'N/A')}"
+    param_text = (f"sigma={params.get('sigma', 'N/A')} | "
+              f"clip={params.get('clipping_bound', 'N/A')} | "
+              f"a={params.get('dfl_a', 'N/A')} | "
+              f"b={params.get('dfl_b', 'N/A')} | "
+              f"k={params.get('dfl_k', 'N/A')} | "
+              f"burn_in={params.get('dfl_burn_in', 'N/A')} | "
+              f"gap={params.get('dfl_decimation', 'N/A')} | "
+              f"chaotic={params.get('chaotic_factor', 'N/A')}")
 
-    # 修改最终结果框
-    decimation_val = params.get('dfl_decimation', 'N/A')
-    result_text = (f"DFL: Acc={dfl_results.get('final_accuracy', 'N/A')}% / Anti-Inv={dfl_results.get('anti_inversion', 'N/A')}  |  "
-                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% / Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}  |  "
-                   f"Gap={decimation_val}")
+    # 最终结果框
+    result_text = (f"DFL: Acc={dfl_results.get('final_accuracy', 'N/A')}% | Anti-Inv={dfl_results.get('anti_inversion', 'N/A')}  |  "
+                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% | Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}")
 
     # 将参数和结果放在整个 Figure 的底部
     fig.text(0.5, 0.02, param_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))

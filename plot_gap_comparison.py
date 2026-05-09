@@ -56,7 +56,7 @@ ax2.set_title('CIFAR10 DFL - Privacy vs Gap')
 ax2.legend()
 ax2.grid(True, alpha=0.3)
 
-param_text = "Params: sigma=0.10, a=4.0, b=501.0, k=7, clip=2.0, burn_in=2048  |  CIFAR10 DFL"
+param_text = "sigma=0.10 | clip=2.0 | a=4.0 | b=501.0 | k=7 | burn_in=2048 | gap=6,12,24  |  CIFAR10 DFL"
 fig.text(0.5, 0.02, param_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 plt.tight_layout(rect=[0, 0.05, 1, 1])
 out_path = 'experiment_results/cifar10_gap_comparison.png'
