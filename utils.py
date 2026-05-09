@@ -68,10 +68,11 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
     if uniform_sequence.numel() < total_elements:
         raise ValueError("Uniform sequence too short")
 
-    u = uniform_sequence.reshape(-1)[:total_elements].to(dtype=torch.float32)
-    u = torch.clamp(u, min=1e-6, max=1.0 - 1e-6)
+    # Use float64 for internal math, then downcast to float32 for model compatibility
+    u = uniform_sequence.reshape(-1)[:total_elements].to(dtype=torch.float64)
+    u = torch.clamp(u, min=1e-12, max=1.0 - 1e-12)
     noise = math.sqrt(2.0) * torch.erfinv(2.0 * u - 1.0)
-    noise = noise.reshape(shape).to(dtype=torch.float64)
+    noise = noise.reshape(shape).to(dtype=torch.float32)
     return noise.to(uniform_sequence.device)
 
 
@@ -365,7 +366,7 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
-    noise = generate_ziggurat_gaussian_noise(shape, u_final).to(dtype=torch.float64)
+    noise = generate_ziggurat_gaussian_noise(shape, u_final)
 
     # 符号翻转保平安
     if needs_sign_flip:
