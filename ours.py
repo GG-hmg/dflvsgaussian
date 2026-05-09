@@ -59,9 +59,9 @@ def _fix_mojibake_text(text):
             # 检查解码后是否包含有效中文
             if any('\u4e00' <= c <= '\u9fff' for c in decoded_gbk):
                 return decoded_gbk
-        except:
+        except Exception:
             pass
-    except:
+    except Exception:
         pass
     suspicious = ("鏂", "闆", "鍔", "绗", "鐨", "锛", "鍏", "姝", "妫", "瀹")
     if not any(token in text for token in suspicious):
