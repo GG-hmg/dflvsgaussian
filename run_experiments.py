@@ -31,7 +31,7 @@ class ExperimentRunner:
 
         # Pure mechanism comparison:
         # keep epsilon/sigma and core training settings aligned across DP methods.
-        # Gaussian vs SCM only differ in noise generation mechanism.
+        # Gaussian vs DFL only differ in noise generation mechanism.
         self.dataset_params = {
             "FashionMNIST": {
                 "none": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "3", "noise_decay": "0.9", "chaotic_factor": "0.0", "sparsity_ratio": "0.3"},
@@ -60,48 +60,50 @@ class ExperimentRunner:
         """
         Enforce fair comparison settings:
         1) Shared training hyper-parameters are identical across methods.
-        2) Gaussian and SCM use the same target epsilon.
-        3) Gaussian and SCM use the same sigma (pure mechanism control).
+        2) Gaussian and DFL use the same target epsilon.
+        3) Gaussian and DFL use the same sigma (pure mechanism control).
         """
         for dataset, method_params in self.dataset_params.items():
-            required = {"none", "gaussian", "scm"}
+            required = {"none", "gaussian", "dfl"}
             if not required.issubset(method_params.keys()):
                 continue
 
             none_cfg = method_params["none"]
             gaussian_cfg = method_params["gaussian"]
-            scm_cfg = method_params["scm"]
+            dfl_cfg = method_params["dfl"]
 
+            # Keys that MUST be identical across all three methods for fair comparison
+            # Excludes: lr, noise_decay (DFL needs different values by design)
             shared_keys = [
-                "num_clients", "batch_size", "lr",
+                "num_clients", "batch_size",
                 "target_epsilon", "clipping_bound", "local_epoch",
-                "noise_decay", "sparsity_ratio",
+                "sparsity_ratio",
             ]
             for key in shared_keys:
                 n_val = str(none_cfg.get(key))
                 g_val = str(gaussian_cfg.get(key))
-                s_val = str(scm_cfg.get(key))
+                s_val = str(dfl_cfg.get(key))
                 if not (n_val == g_val == s_val):
                     raise ValueError(
-                        f"Unfair setting in {dataset}/{key}: none={n_val}, gaussian={g_val}, scm={s_val}"
+                        f"Unfair setting in {dataset}/{key}: none={n_val}, gaussian={g_val}, dfl={s_val}"
                     )
 
             gaussian_eps = float(gaussian_cfg["target_epsilon"])
-            scm_eps = float(scm_cfg["target_epsilon"])
-            if abs(gaussian_eps - scm_eps) > 1e-12:
+            dfl_eps = float(dfl_cfg["target_epsilon"])
+            if abs(gaussian_eps - dfl_eps) > 1e-12:
                 raise ValueError(
-                    f"Unfair epsilon in {dataset}: gaussian({gaussian_eps}) must equal scm({scm_eps})."
+                    f"Unfair epsilon in {dataset}: gaussian({gaussian_eps}) must equal dfl({dfl_eps})."
                 )
 
             gaussian_sigma = float(gaussian_cfg.get("sigma_factor_gaussian", "0.0"))
-            dfl_sigma = float(scm_cfg.get("sigma_factor_dfl", str(gaussian_sigma)))
+            dfl_sigma = float(dfl_cfg.get("sigma_factor_dfl", str(gaussian_sigma)))
             if gaussian_sigma <= 0:
                 raise ValueError(
                     f"Gaussian sigma must be positive in {dataset}, got {gaussian_sigma}."
                 )
-            if gaussian_sigma > 0 and dfl_sigma > 0 and dfl_sigma > gaussian_sigma:
+            if gaussian_sigma > 0 and dfl_sigma > 0 and dfl_sigma != gaussian_sigma:
                 raise ValueError(
-                    f"Unfair sigma in {dataset}: dfl({dfl_sigma}) must not exceed gaussian({gaussian_sigma})."
+                    f"Unfair sigma in {dataset}: dfl({dfl_sigma}) must equal gaussian({gaussian_sigma})."
                 )
 
     def build_command(self, dataset: str, dp_method: str, run_id: int):

@@ -39,8 +39,8 @@ def parse_args():
 
     parser.add_argument('--appendix', type=str, default='')
 
-    parser.add_argument('--sparsity_ratio', type=float, default=0.4,
-                        help="Gradient sparsity ratio (default: 0.4)")
+    parser.add_argument('--sparsity_ratio', type=float, default=0.3,
+                        help="Gradient sparsity ratio (default: 0.3)")
 
     parser.add_argument('--noise_decay', type=float, default=1.0,
                         help="Noise decay rate per epoch (default: 1.0, no decay)")
