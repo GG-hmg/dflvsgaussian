@@ -354,14 +354,14 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                                     param.grad.data.add_(param_noise)
                                     offset += numel
 
-                                # ✅ 二次全局裁剪（防止 100% DFL 的记忆偏移击穿梯度）
-                                post_grads = torch.cat([p.grad.view(-1) for p in grad_params])
-                                post_norm = torch.norm(post_grads)
-                                safe_bound = clipping_bound * 2.0
-                                if post_norm > safe_bound:
-                                    post_scale = safe_bound / post_norm
-                                    for p in grad_params:
-                                        p.grad.data.mul_(post_scale)
+                                # ✅ 二次全局裁剪（暂时注释，研究无二次裁剪的影响）
+                                # post_grads = torch.cat([p.grad.view(-1) for p in grad_params])
+                                # post_norm = torch.norm(post_grads)
+                                # safe_bound = clipping_bound * 2.0
+                                # if post_norm > safe_bound:
+                                #     post_scale = safe_bound / post_norm
+                                #     for p in grad_params:
+                                #         p.grad.data.mul_(post_scale)
                             else:
                                 for param in grad_params:
                                     noise = generate_random_gaussian_noise_like(param.grad) * sigma

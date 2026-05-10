@@ -475,6 +475,15 @@ def simulate_gradient_inversion_risk(
         # and attack reconstruction leakage is lower.
         defense_score = float(max(0.0, min(1.0, perturb_score * (1.0 - leakage_risk))))
 
+        # ====== 强制清空显存 ======
+        del attack_model
+        del clean_grads
+        del target_grads
+        if gaussian_aware_used:
+            del denoised_target_grads
+        torch.cuda.empty_cache()
+        # ==========================
+
         return {
             "ok": True,
             "risk_score": leakage_risk,
