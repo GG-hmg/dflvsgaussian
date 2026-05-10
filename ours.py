@@ -354,7 +354,7 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                                     param.grad.data.add_(param_noise)
                                     offset += numel
 
-                                # ✅ 二次全局裁剪（暂时注释，研究无二次裁剪的影响）
+                                # ✅ 二次全局裁剪（暂时注释）
                                 # post_grads = torch.cat([p.grad.view(-1) for p in grad_params])
                                 # post_norm = torch.norm(post_grads)
                                 # safe_bound = clipping_bound * 2.0

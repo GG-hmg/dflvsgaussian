@@ -1,4 +1,5 @@
 import copy
+import gc
 import math
 import random
 from dataclasses import dataclass
@@ -475,13 +476,14 @@ def simulate_gradient_inversion_risk(
         # and attack reconstruction leakage is lower.
         defense_score = float(max(0.0, min(1.0, perturb_score * (1.0 - leakage_risk))))
 
-        # ====== 强制清空显存 ======
+        # ====== 优雅的显存释放 ======
         del attack_model
         del clean_grads
         del target_grads
         if gaussian_aware_used:
             del denoised_target_grads
-        torch.cuda.empty_cache()
+        # 不用 empty_cache（阻塞 GPU 异步），改用 CPU 端轻量 GC
+        gc.collect()
         # ==========================
 
         return {
