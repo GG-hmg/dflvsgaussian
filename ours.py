@@ -165,7 +165,6 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     k = getattr(args, 'dfl_k', 7)
     decimation = getattr(args, 'dfl_decimation', 12)
     burn_in = getattr(args, 'dfl_burn_in', 2048)
-    jitter = getattr(args, 'dfl_jitter', 1e-4)
     max_direct_uniform = getattr(args, 'dfl_max_direct_uniform', 4096)
 
     seed_value = (client_id * 1000 + epoch * 100 + batch_idx) % 10000
@@ -179,7 +178,6 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
         x0=np.random.random(),
         decimation=decimation,
         burn_in=burn_in,
-        jitter=jitter,
         max_direct_uniform=max_direct_uniform
     ).to(device)
 
@@ -353,15 +351,6 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                                     param_noise = flat_noise[offset:offset + numel].view_as(param.grad)
                                     param.grad.data.add_(param_noise)
                                     offset += numel
-
-                                # ✅ 二次全局裁剪（暂时注释）
-                                # post_grads = torch.cat([p.grad.view(-1) for p in grad_params])
-                                # post_norm = torch.norm(post_grads)
-                                # safe_bound = clipping_bound * 2.0
-                                # if post_norm > safe_bound:
-                                #     post_scale = safe_bound / post_norm
-                                #     for p in grad_params:
-                                #         p.grad.data.mul_(post_scale)
                             else:
                                 for param in grad_params:
                                     noise = generate_random_gaussian_noise_like(param.grad) * sigma
@@ -392,7 +381,6 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                     dfl_b=float(getattr(args, 'dfl_b', 501.0)),
                     dfl_k=int(getattr(args, 'dfl_k', 7)),
                     dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
-                    dfl_jitter=float(getattr(args, 'dfl_jitter', 1e-4)),
                     dfl_max_direct_uniform=int(getattr(args, 'dfl_max_direct_uniform', 4096)),
                 )
                 risk_result = simulate_gradient_inversion_risk(

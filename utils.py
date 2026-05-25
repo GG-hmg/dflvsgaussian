@@ -112,7 +112,6 @@ def generate_3d_scm_gaussian_noise(shape, length=20, a=300, b=150,
                                    x0=0.1, y0=0.2, z0=0.3,
                                    multiplier=1024, decimation=2,
                                    burn_in=1024, thin=None, mix_lag=7,
-                                   jitter=1e-4, max_direct_uniform=4096):
     total_elements = int(shape.numel())
     if total_elements <= 0:
         return torch.zeros(shape)
@@ -140,8 +139,6 @@ def generate_3d_scm_gaussian_noise(shape, length=20, a=300, b=150,
 
     u = u[::thin_factor]
 
-    if jitter and float(jitter) > 0:
-        u = torch.remainder(u + (torch.rand_like(u) - 0.5) * float(jitter), 1.0)
 
     check_u = u[:min(int(u.numel()), 4096)]
     quantized = torch.floor(check_u * 4096).to(torch.int64)
@@ -258,7 +255,6 @@ def add_adaptive_gaussian_noise(gradients, client_epsilon, delta,
                     x0=random.random(),
                     burn_in=getattr(args, 'dfl_burn_in', 2048),
                     decimation=getattr(args, 'dfl_decimation', 12),
-                    jitter=getattr(args, 'dfl_jitter', 1e-4),
                     max_direct_uniform=getattr(args, 'dfl_max_direct_uniform', 4096)
                 ).to(grad_device)
 
@@ -321,7 +317,6 @@ def _get_dfl_sequences(a, b, k, seed_val, needed_length):
     return seq_tensor[start_idx : start_idx + needed_length]
 
 def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
-                                burn_in=2048, decimation=12, jitter=1e-4,
                                 max_direct_uniform=4096):
     total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
     if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
@@ -342,8 +337,6 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     u = seq[burn_in:]
     u = u[::thin_factor]
 
-    if jitter > 0:
-        u = torch.remainder(u + (torch.rand_like(u) - 0.5) * jitter, 1.0)
 
     if u.numel() == 0: raise ValueError("DFL sequence empty")
 

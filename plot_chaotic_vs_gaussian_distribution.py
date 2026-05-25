@@ -44,7 +44,6 @@ def build_chaotic_gaussian_decorrelated(
         dfl_mu: float,
         dfl_alpha: float,
         dfl_burn_in: int,
-        dfl_jitter: float,
         dfl_max_direct_uniform: int
 ) -> np.ndarray:
     """Use fixed DFL generator from utils.py with decorrelation parameters."""
@@ -55,7 +54,6 @@ def build_chaotic_gaussian_decorrelated(
         x0=random.random(),
         x1=random.random(),
         burn_in=dfl_burn_in,
-        jitter=dfl_jitter,
         max_direct_uniform=dfl_max_direct_uniform,
     )
     return chaotic.detach().cpu().numpy()
@@ -130,8 +128,6 @@ def main() -> None:
     parser.add_argument("--dfl_alpha", type=float, default=0.98, help="DFL fractional order alpha")
     parser.add_argument("--dfl_burn_in", type=int, default=5000,
                         help="Burn-in steps before collecting chaotic samples")
-    parser.add_argument("--dfl_jitter", type=float, default=1e-4,
-                        help="Small uniform jitter amplitude in [0,1) domain")
     parser.add_argument("--dfl_max_direct_uniform", type=int, default=50000,
                         help="Max direct DFL uniforms before phase expansion (plot mode)")
     args = parser.parse_args()
@@ -149,7 +145,6 @@ def main() -> None:
             dfl_mu=args.dfl_mu,
             dfl_alpha=args.dfl_alpha,
             dfl_burn_in=args.dfl_burn_in,
-            dfl_jitter=args.dfl_jitter,
             dfl_max_direct_uniform=args.dfl_max_direct_uniform,
         )
 

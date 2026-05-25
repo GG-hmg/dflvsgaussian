@@ -41,8 +41,7 @@ class DefenseSimulationConfig:
     dfl_b: float = 501.0
     dfl_k: int = 7
     dfl_burn_in: int = 2048
-    dfl_jitter: float = 1e-4
-    dfl_max_direct_uniform: int = 4096
+        dfl_max_direct_uniform: int = 4096
 
 
 _DATASET_STATS = {
@@ -129,7 +128,7 @@ def _generate_chaotic_flat_noise(numel: int, cfg: DefenseSimulationConfig, devic
         k=int(cfg.dfl_k),
         x0=float(x0),
         burn_in=int(cfg.dfl_burn_in),
-        jitter=float(cfg.dfl_jitter),
+        
         max_direct_uniform=int(cfg.dfl_max_direct_uniform),
     ).to(device)
     std = torch.std(flat_chaotic)
