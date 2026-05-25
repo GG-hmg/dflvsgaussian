@@ -237,18 +237,6 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
             result[filled : filled + n_good] = x_abs[accepted][:n_good] * sign
             filled += n_good
 
-    # Fallback: any unfilled slots → use Box-Muller (should never happen)
-    if filled < total_elements:
-        n_fall = total_elements - filled
-        u1 = u_flat[(consumed % int(u_flat.numel())):].to(torch.float32)
-        u1 = u1[:n_fall].clamp(min=1e-12, max=1.0 - 1e-12)
-        u2 = u_flat[(consumed + n_fall) % int(u_flat.numel()):].to(torch.float32)
-        u2 = u2[:n_fall]
-        r_bm = torch.sqrt(-2.0 * torch.log(u1))
-        theta = 2.0 * math.pi * u2
-        result[filled:] = r_bm * torch.cos(theta)
-        filled = total_elements
-
     return result.reshape(shape)
 
 
@@ -428,7 +416,6 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     u = seq[burn_in:]
     u = u[::thin_factor]
 
-
     if u.numel() == 0: raise ValueError("DFL sequence empty")
 
     check = u[:min(u.numel(), 4096)]
@@ -461,5 +448,3 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
         noise = noise * sign_mask.reshape(shape)
 
     return noise
-
-generate_simple_chaotic_noise = generate_dfl_gaussian_noise
