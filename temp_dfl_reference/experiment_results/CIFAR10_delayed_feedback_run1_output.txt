@@ -1,0 +1,171 @@
+命令: F:\CondaEnvs\dynamic_env\python.exe -u ours.py --dataset CIFAR10 --global_epoch 20 --num_clients 3 --local_epoch 4 --batch_size 32 --lr 0.01 --target_epsilon 8.0 --target_delta 1e-5 --clipping_bound 4.0 --dir_alpha 100 --device 0 --user_sample_rate 1.0 --seed 20260312 --noise_decay 1.0 --noise_decay_type exponential --sparsity_ratio 0.0 --dp_method delayed_feedback --gir_attack_steps 24 --gir_attack_trials 2 --gir_attack_batch_size 1 --gir_attack_lr 0.1 --gir_eval_interval 0 --gir_max_evals_per_client_update 2 --sigma_factor_gaussian 0.005 --sigma_factor_delayed_feedback 0.005 --a 4.0 --b 501.0 --k 4 --burn_in 2048 --decimation 12 --q_bits 32 --q_mode round --map_type logistic
+返回码: 0
+运行时间: 3326.1秒
+=== 标准输出 ===
+正在加载 CIFAR10 数据集...
+检测到本地CIFAR10数据集，直接使用...
+使用CIFAR10数据集...
+使用原始数据加载方法成功: 3个客户端
+数据加载成功: 3个客户端，总数据量: 50000
+客户端隐私预算分配: ['7.88', '7.98', '8.14']
+客户端数据量: [16166, 16587, 17247]
+
+全局轮次 DELAYED_FEEDBACK:   0%|          | 0/20 [00:00<?, ?it/s]轮次 1 客户端准确率: ['51.32%', '51.80%', '49.55%']
+轮次 1 平均训练损失: 1.6448
+轮次 1 平均抗梯度反演能力: 0.5269
+ATTACK_METRICS_EPOCH 1: avg_psnr=8.672725, avg_ssim=0.083025, avg_lpips=0.242139, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:   5%|▌         | 1/20 [02:47<53:02, 167.48s/it]轮次 2 客户端准确率: ['60.21%', '58.32%', '61.01%']
+轮次 2 平均训练损失: 1.3416
+轮次 2 平均抗梯度反演能力: 0.5029
+ATTACK_METRICS_EPOCH 2: avg_psnr=9.059908, avg_ssim=0.063623, avg_lpips=0.220148, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  10%|█         | 2/20 [05:32<49:50, 166.13s/it]轮次 3 客户端准确率: ['58.89%', '62.63%', '60.58%']
+轮次 3 平均训练损失: 1.1867
+轮次 3 平均抗梯度反演能力: 0.4965
+ATTACK_METRICS_EPOCH 3: avg_psnr=8.753743, avg_ssim=0.050454, avg_lpips=0.226838, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  15%|█▌        | 3/20 [08:20<47:16, 166.85s/it]轮次 4 客户端准确率: ['61.72%', '61.85%', '64.02%']
+轮次 4 平均训练损失: 1.0944
+轮次 4 平均抗梯度反演能力: 0.4235
+ATTACK_METRICS_EPOCH 4: avg_psnr=7.914678, avg_ssim=0.055822, avg_lpips=0.265461, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  20%|██        | 4/20 [11:06<44:25, 166.62s/it]轮次 5 客户端准确率: ['61.37%', '60.43%', '65.28%']
+轮次 5 平均训练损失: 1.0301
+轮次 5 平均抗梯度反演能力: 0.4422
+ATTACK_METRICS_EPOCH 5: avg_psnr=7.843300, avg_ssim=0.042237, avg_lpips=0.264314, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  25%|██▌       | 5/20 [13:52<41:34, 166.27s/it]轮次 6 客户端准确率: ['64.40%', '64.91%', '65.30%']
+轮次 6 平均训练损失: 0.9842
+轮次 6 平均抗梯度反演能力: 0.4530
+ATTACK_METRICS_EPOCH 6: avg_psnr=8.017797, avg_ssim=0.031965, avg_lpips=0.252381, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  30%|███       | 6/20 [16:39<38:50, 166.48s/it]轮次 7 客户端准确率: ['65.98%', '64.61%', '68.21%']
+轮次 7 平均训练损失: 0.9439
+轮次 7 平均抗梯度反演能力: 0.4329
+ATTACK_METRICS_EPOCH 7: avg_psnr=7.862221, avg_ssim=0.018966, avg_lpips=0.260039, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  35%|███▌      | 7/20 [19:25<36:01, 166.27s/it]轮次 8 客户端准确率: ['68.13%', '65.17%', '66.11%']
+轮次 8 平均训练损失: 0.9118
+轮次 8 平均抗梯度反演能力: 0.4562
+ATTACK_METRICS_EPOCH 8: avg_psnr=7.154728, avg_ssim=0.013800, avg_lpips=0.304795, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  40%|████      | 8/20 [22:09<33:10, 165.86s/it]轮次 9 客户端准确率: ['69.06%', '68.18%', '66.42%']
+轮次 9 平均训练损失: 0.8852
+轮次 9 平均抗梯度反演能力: 0.4124
+ATTACK_METRICS_EPOCH 9: avg_psnr=8.086541, avg_ssim=0.045196, avg_lpips=0.255820, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  45%|████▌     | 9/20 [24:55<30:23, 165.75s/it]轮次 10 客户端准确率: ['68.26%', '68.44%', '67.12%']
+轮次 10 平均训练损失: 0.8602
+轮次 10 平均抗梯度反演能力: 0.5550
+ATTACK_METRICS_EPOCH 10: avg_psnr=7.650437, avg_ssim=0.018959, avg_lpips=0.273820, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  50%|█████     | 10/20 [27:41<27:37, 165.77s/it]轮次 11 客户端准确率: ['66.94%', '70.57%', '68.85%']
+轮次 11 平均训练损失: 0.8419
+轮次 11 平均抗梯度反演能力: 0.4667
+ATTACK_METRICS_EPOCH 11: avg_psnr=8.144988, avg_ssim=0.025228, avg_lpips=0.251261, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  55%|█████▌    | 11/20 [30:29<24:58, 166.54s/it]轮次 12 客户端准确率: ['69.70%', '69.98%', '68.63%']
+轮次 12 平均训练损失: 0.8243
+轮次 12 平均抗梯度反演能力: 0.5034
+ATTACK_METRICS_EPOCH 12: avg_psnr=7.712868, avg_ssim=0.020278, avg_lpips=0.266556, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  60%|██████    | 12/20 [33:15<22:09, 166.21s/it]轮次 13 客户端准确率: ['70.51%', '69.58%', '68.79%']
+轮次 13 平均训练损失: 0.8066
+轮次 13 平均抗梯度反演能力: 0.6161
+ATTACK_METRICS_EPOCH 13: avg_psnr=7.342139, avg_ssim=0.009055, avg_lpips=0.293677, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  65%|██████▌   | 13/20 [36:00<19:22, 166.04s/it]轮次 14 客户端准确率: ['70.27%', '69.00%', '69.29%']
+轮次 14 平均训练损失: 0.7968
+轮次 14 平均抗梯度反演能力: 0.4756
+ATTACK_METRICS_EPOCH 14: avg_psnr=7.781982, avg_ssim=0.026216, avg_lpips=0.263912, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  70%|███████   | 14/20 [38:45<16:34, 165.78s/it]轮次 15 客户端准确率: ['68.66%', '70.64%', '68.76%']
+轮次 15 平均训练损失: 0.7857
+轮次 15 平均抗梯度反演能力: 0.4820
+ATTACK_METRICS_EPOCH 15: avg_psnr=7.827818, avg_ssim=0.018379, avg_lpips=0.264007, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  75%|███████▌  | 15/20 [41:30<13:47, 165.53s/it]轮次 16 客户端准确率: ['71.13%', '69.44%', '70.97%']
+轮次 16 平均训练损失: 0.7744
+轮次 16 平均抗梯度反演能力: 0.4541
+ATTACK_METRICS_EPOCH 16: avg_psnr=7.340680, avg_ssim=0.018807, avg_lpips=0.293542, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  80%|████████  | 16/20 [44:16<11:02, 165.65s/it]轮次 17 客户端准确率: ['70.89%', '71.11%', '70.65%']
+轮次 17 平均训练损失: 0.7668
+轮次 17 平均抗梯度反演能力: 0.5466
+ATTACK_METRICS_EPOCH 17: avg_psnr=7.856063, avg_ssim=0.006294, avg_lpips=0.259971, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  85%|████████▌ | 17/20 [47:03<08:17, 165.84s/it]轮次 18 客户端准确率: ['71.39%', '71.89%', '71.43%']
+轮次 18 平均训练损失: 0.7542
+轮次 18 平均抗梯度反演能力: 0.5518
+ATTACK_METRICS_EPOCH 18: avg_psnr=8.152280, avg_ssim=0.016334, avg_lpips=0.249831, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  90%|█████████ | 18/20 [49:49<05:32, 166.05s/it]轮次 19 客户端准确率: ['71.11%', '69.63%', '71.31%']
+轮次 19 平均训练损失: 0.7469
+轮次 19 平均抗梯度反演能力: 0.4677
+ATTACK_METRICS_EPOCH 19: avg_psnr=8.009550, avg_ssim=0.012215, avg_lpips=0.253119, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK:  95%|█████████▌| 19/20 [52:35<02:45, 165.99s/it]轮次 20 客户端准确率: ['69.99%', '70.74%', '70.27%']
+轮次 20 平均训练损失: 0.7385
+轮次 20 平均抗梯度反演能力: 0.5339
+ATTACK_METRICS_EPOCH 20: avg_psnr=7.622985, avg_ssim=0.026768, avg_lpips=0.276459, attack_success_rate=0.000000
+
+全局轮次 DELAYED_FEEDBACK: 100%|██████████| 20/20 [55:21<00:00, 166.02s/it]
+全局轮次 DELAYED_FEEDBACK: 100%|██████████| 20/20 [55:21<00:00, 166.08s/it]
+
+================================================================================
+DELAYED_FEEDBACK差分隐私联邦学习 - 实验结果汇总
+================================================================================
+数据集: CIFAR10
+全局训练轮次: 20
+训练时间: 3321.5秒
+平均准确率历程: ['50.89%', '59.85%', '60.70%', '62.53%', '62.36%', '64.87%', '66.27%', '66.47%', '67.89%', '67.94%', '68.79%', '69.44%', '69.63%', '69.52%', '69.35%', '70.51%', '70.88%', '71.57%', '70.68%', '70.33%']
+平均损失历程: ['1.6448', '1.3416', '1.1867', '1.0944', '1.0301', '0.9842', '0.9439', '0.9118', '0.8852', '0.8602', '0.8419', '0.8243', '0.8066', '0.7968', '0.7857', '0.7744', '0.7668', '0.7542', '0.7469', '0.7385']
+抗梯度反演能力历程: ['0.5269', '0.5029', '0.4965', '0.4235', '0.4422', '0.4530', '0.4329', '0.4562', '0.4124', '0.5550', '0.4667', '0.5034', '0.6161', '0.4756', '0.4820', '0.4541', '0.5466', '0.5518', '0.4677', '0.5339']
+
+准确率变化:
+轮次  1: 50.89%
+轮次  2: 59.85%
+轮次  3: 60.70%
+轮次  4: 62.53%
+轮次  5: 62.36%
+轮次  6: 64.87%
+轮次  7: 66.27%
+轮次  8: 66.47%
+轮次  9: 67.89%
+轮次 10: 67.94%
+轮次 11: 68.79%
+轮次 12: 69.44%
+轮次 13: 69.63%
+轮次 14: 69.52%
+轮次 15: 69.35%
+轮次 16: 70.51%
+轮次 17: 70.88%
+轮次 18: 71.57%
+轮次 19: 70.68%
+轮次 20: 70.33%
+
+总结:
+初始准确率: 50.89%
+最终准确率: 70.33%
+性能提升: +19.44% (+38.2%)
+
+损失变化:
+初始损失: 1.6448
+最终损失: 0.7385
+损失改善: 55.1%
+
+效率分析:
+总训练时间: 3321.5秒
+平均每轮时间: 166.1秒
+隐私保护带来的准确率损失: +0.00% (+0.0%)
+隐私-性能权衡比: 0.1383 (越低越好)
+
+隐私保护评估:
+目标隐私预算ε: 8.0
+最终抗梯度反演能力: 0.5339
+隐私保护效果: 良好 (中等抗梯度反演能力)
+PAPER_METRICS_FINAL: final_accuracy=70.333333, best_accuracy=71.570000, mean_accuracy=66.523333, final_loss=0.738467, mean_loss=0.935946, convergence_epoch=9, stability=0.993963, accuracy_variance=0.182671, loss_variance=0.000170, avg_epoch_time=166.075228, training_time=3321.504557, dir_alpha=100.000000, target_epsilon=8.000000, target_delta=0.00001000, clipping_bound=4.000000, comm_per_round_mb=3.936150, total_comm_mb=78.722992, model_params=343946
+PAPER_CLIENT_FINAL: mean=70.333333, std=0.309444, min=69.990000, max=70.740000, worst_client_accuracy=69.990000, jain_fairness=0.999981
+PAPER_ATTACK_FINAL: anti_inversion_ability=0.533850, leakage_risk=0.466150, avg_psnr=7.622985, best_psnr=7.685138, avg_mse=4.326016, best_mse=4.267535, avg_ssim=0.026768, best_ssim=0.036379, avg_lpips=0.276459, best_lpips=0.273179, attack_success_rate=0.000000, noise_gaussianity=0.628114, noise_structure=0.234902
+================================================================================
