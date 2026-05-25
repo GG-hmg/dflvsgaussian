@@ -2,7 +2,6 @@ import torch
 from options import parse_args
 import numpy as np
 import math
-import scipy.stats as stats
 import random
 
 args = parse_args()
@@ -36,29 +35,29 @@ def generate_random_gaussian_noise_like(reference_tensor):
 
 # ==================== True Ziggurat Normal Sampler (Marsaglia-Tsang 2000) ====================
 # Pre-computed 256-layer lookup tables — built once at import time.
-# These tables replicate the Marsaglia-Tsang Ziggurat used by PyTorch/cuRAND internally.
+# The tables replicate the canonical Marsaglia-Tsang Ziggurat.  Note: PyTorch's
+# own torch.randn() uses Box-Muller via cuRAND — this is an independent
+# implementation that can be fed custom uniform sequences (e.g. DFL chaotic).
 
 _ZIGGURAT_N = 256
 _ZIGGURAT_R = 3.6541528853610088       # tail boundary (start of tail layer)
 _ZIGGURAT_V = 0.00492867323399          # per-rectangle area (v = A_layer)
 
 def _build_ziggurat_tables():
-    """Build x[i] (width) and f[i] (half-normal PDF at x[i]) for 256-layer Ziggurat.
+    """Build x[i] (width) and f[i] (standard-normal PDF = exp(-x²/2)/√2π).
 
-    Follows Marsaglia & Tsang (2000) exactly.
-    The iteration uses a numerical approximation that is valid while
-    ``v / d + f < 1.0``.  Once the argument of ``log`` would become
-    non-positive we simply fill the remaining lower layers with ``d = 0``
-    (these are the innermost layers where the PDF is nearly flat).
+    Follows Marsaglia & Tsang (2000).  The f-table stores *un-normalised*
+    values ``exp(-x²/2)`` so that the rectangle test is invariant to the
+    leading constant 1/√2π — identical to Apache Commons RNG's convention.
     """
     n = _ZIGGURAT_N
     r = _ZIGGURAT_R
-    v = _ZIGGURAT_V   # per-rectangle area, ≈ A_layer
+    v = _ZIGGURAT_V
 
     x_table = [0.0] * n
     f_table = [0.0] * n
 
-    # Layer N-1: tail boundary
+    # Layer N-1: tail boundary — store un-normalised PDF
     d_val = r
     f_val = math.exp(-0.5 * r * r)
     if f_val < 1e-20:
@@ -70,7 +69,6 @@ def _build_ziggurat_tables():
     for i in range(n - 2, 0, -1):
         arg = v / d_val + f_val
         if arg >= 1.0:
-            # Numeric limit reached — pad remainder with zeros
             break
         d_val = math.sqrt(-2.0 * math.log(arg))
         f_val = math.exp(-0.5 * d_val * d_val)
@@ -79,9 +77,9 @@ def _build_ziggurat_tables():
         x_table[i] = d_val
         f_table[i] = f_val
 
-    # Layer 0: origin — x=0, half-normal PDF(0) = sqrt(2/pi) ≈ 0.7979
+    # Layer 0: origin — f(0) = exp(0) = 1.0
     x_table[0] = 0.0
-    f_table[0] = math.sqrt(2.0 / math.pi)
+    f_table[0] = 1.0
 
     return (
         torch.tensor(x_table, dtype=torch.float32),
@@ -89,6 +87,29 @@ def _build_ziggurat_tables():
     )
 
 _ZT_X, _ZT_F = _build_ziggurat_tables()
+
+
+def generate_inverse_cdf_gaussian_noise(shape, uniform_sequence):
+    """
+    Inverse-CDF (erfinv) Gaussian sampler — the classic method (slow but exact).
+
+    Kept for ablation / comparison with the true Ziggurat sampler.
+    Uses float64 internally to avoid erfinv tail instability, then cast
+    to float32 for model compatibility.
+    """
+    shape = torch.Size(shape)
+    total_elements = int(shape.numel())
+    if total_elements <= 0:
+        return torch.zeros(shape, device=uniform_sequence.device, dtype=torch.float32)
+    if uniform_sequence.numel() < total_elements:
+        raise ValueError("Uniform sequence too short")
+
+    u = uniform_sequence.reshape(-1)[:total_elements].to(dtype=torch.float64)
+    u = torch.clamp(u, min=1e-12, max=1.0 - 1e-12)
+    noise = math.sqrt(2.0) * torch.erfinv(2.0 * u - 1.0)
+    noise = noise.reshape(shape).to(dtype=torch.float32)
+    return noise.to(uniform_sequence.device)
+
 
 def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
     """
@@ -114,7 +135,6 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
 
     n = _ZIGGURAT_N
     r = _ZIGGURAT_R
-    inv_sqrt2pi = 1.0 / math.sqrt(2.0 * math.pi)
 
     # We consume the uniform_sequence as a flat float32 buffer.
     # Each attempt needs 3 floats (layer_float, u, u_test) + 1 for sign.
@@ -183,7 +203,8 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
 
             y_lower = f_table[j_rect_m1]
             y_upper = f_table[j_rect]
-            pdf_x = inv_sqrt2pi * torch.exp(-0.5 * x_rect * x_rect)
+            # Un-normalised PDF (matching f_table convention: exp(-x²/2))
+            pdf_x = torch.exp(-0.5 * x_rect * x_rect)
 
             accept_rect[need_rect] = (u_rect * (y_lower - y_upper)) < (pdf_x - y_upper)
 
