@@ -65,8 +65,6 @@ def parse_args():
                 help='DFL delay steps k (default: 7)')
     parser.add_argument('--dfl_burn_in', type=int, default=2048,
                         help="Burn-in steps before using DFL samples (default: 2048)")
-    parser.add_argument('--dfl_max_direct_uniform', type=int, default=4096,
-                        help="Max direct DFL uniforms before phase expansion (default: 4096)")
     parser.add_argument('--dfl_decimation', type=int, default=12,
                         help="DFL gap/decimation factor to break correlation (default: 12)")
 

@@ -165,7 +165,6 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     k = getattr(args, 'dfl_k', 7)
     decimation = getattr(args, 'dfl_decimation', 12)
     burn_in = getattr(args, 'dfl_burn_in', 2048)
-    max_direct_uniform = getattr(args, 'dfl_max_direct_uniform', 4096)
 
     seed_value = (client_id * 1000 + epoch * 100 + batch_idx) % 10000
     np.random.seed(seed_value)
@@ -178,7 +177,6 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
         x0=np.random.random(),
         decimation=decimation,
         burn_in=burn_in,
-        max_direct_uniform=max_direct_uniform
     ).to(device)
 
     # 校准方差为1
@@ -381,7 +379,6 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                     dfl_b=float(getattr(args, 'dfl_b', 501.0)),
                     dfl_k=int(getattr(args, 'dfl_k', 7)),
                     dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
-                    dfl_max_direct_uniform=int(getattr(args, 'dfl_max_direct_uniform', 4096)),
                 )
                 risk_result = simulate_gradient_inversion_risk(
                     model=model,
