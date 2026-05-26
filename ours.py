@@ -244,7 +244,11 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
     global_params = [param.clone().detach() for param in global_model.parameters()]
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.8)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=30,
+        eta_min=1e-5,
+    )
     criterion = nn.CrossEntropyLoss()
 
     model.train()

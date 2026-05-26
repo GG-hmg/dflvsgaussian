@@ -18,7 +18,7 @@ class ExperimentRunner:
         self.dp_methods = ["none", "gaussian", "dfl"]
         self.datasets = ["CIFAR10", "MNIST", "SVHN"]
         self.num_runs = 3
-        self.global_epochs = {"CIFAR10": 40, "MNIST": 30, "SVHN": 40}
+        self.global_epochs = {"CIFAR10": 30, "MNIST": 30, "SVHN": 30}
         self.local_epochs = {"CIFAR10": 4, "MNIST": 3, "SVHN": 4}
         self.gir_common = {
             "gir_attack_steps": "12",
