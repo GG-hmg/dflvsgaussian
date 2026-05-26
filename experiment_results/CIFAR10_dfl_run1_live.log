@@ -9,3 +9,15 @@ Random seed: 20260312
 正在加载 CIFAR10 数据集...
 检测到本地CIFAR10数据集，直接使用...
 使用CIFAR10数据集...
+使用原始数据加载方法成功: 3个客户端
+数据加载成功: 3个客户端，总数据量: 50000
+客户端隐私预算分配: ['7.92', '7.98', '8.09']
+客户端数据量: [16342, 16601, 17057]
+
+全局轮次 DFL:   0%|          | 0/60 [00:00<?, ?it/s][Pure DFL] Building 16.5M pure chaotic sequence (a=4.0, b=501.0, k=3)...
+[Pure DFL] First-time build may take seconds to tens of seconds. Subsequent epochs use cache.
+[Pure DFL] Reservoir build completed! Ready for training.
+轮次 1 客户端准确率: ['44.02%', '44.27%', '46.08%']
+轮次 1 平均训练损失: 1.7749
+轮次 1 平均抗梯度反演能力: 0.5262
+

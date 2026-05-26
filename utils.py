@@ -397,40 +397,34 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
     if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
 
-    total_uniform = 2 * total_elements
+    # Fix 1: Saturation extraction — 10x elements, after pairing = 5x,
+    # comfortably above Ziggurat's ~4.1x budget, bypassing internal phase-shift entirely.
+    total_uniform = 10 * total_elements
+
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # Exact length needed — decimation gap + burn-in, no shortcuts
     required_length = burn_in + (total_uniform * thin_factor) + 64
 
-    # Pure generation: request exactly what we need, no repeats
     seq = _get_pure_dfl_sequences(a, b, k, x0, required_length)
 
-    # Direct extraction with Gap (decimation)
     u = seq[burn_in:]
     u = u[::thin_factor]
     u = u[:total_uniform]
 
     if u.numel() == 0: raise ValueError("DFL sequence empty")
 
-    # Degeneracy guard (the only retained safety patch)
+    # Degeneracy guard
     check = u[:min(u.numel(), 4096)]
     if torch.unique(torch.floor(check * 4096)).numel() < min(256, max(32, check.numel() // 64)):
         u = torch.remainder(0.8 * u + 0.2 * torch.rand_like(u), 1.0)
 
-    # Exactly enough uniforms — straight to pairing
+    # Adjacent-pair coupling for anti-pattern defense
     pairs = u.reshape(-1, 2)
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
+    # Fix 2: Ziggurat already assigns sign via the 4th uniform from DFL sequence.
+    # No external sign flip needed — 100% pure chaotic origin.
     noise = generate_ziggurat_gaussian_noise(shape, u_final)
-
-    # Sign flip for strict zero-mean
-    base_noise_len = total_uniform // 2
-    reps_noise = (total_elements + base_noise_len - 1) // base_noise_len
-    signs = (torch.randint(0, 2, (reps_noise,), device=noise.device, dtype=torch.float32) * 2 - 1)
-    sign_mask = signs.repeat_interleave(base_noise_len)[:total_elements]
-    noise = noise * sign_mask.reshape(shape)
-
     return noise
