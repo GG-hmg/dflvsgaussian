@@ -168,7 +168,11 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     ax1.set_title(f'{dataset} - Accuracy Comparison')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
-    ax1.set_ylim([0, 110])
+    all_accs = dfl_accs + gauss_accs
+    if all_accs:
+        acc_min = max(0, min(all_accs) - 5)
+        acc_max = min(100, max(all_accs) + 5)
+        ax1.set_ylim([acc_min, acc_max])
 
     # 图2: 抗反演能力对比
     ax2 = axes[1]

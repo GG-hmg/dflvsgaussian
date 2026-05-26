@@ -12,9 +12,9 @@ def parse_args():
 
     parser.add_argument('--target_epsilon', type=float, default=1, help="Target privacy budget epsilon")
     parser.add_argument('--target_delta', type=float, default=1e-1, help="Target privacy budget delta")
-    parser.add_argument('--clipping_bound', type=float, default=1.5, help="Gradient clipping bound")
+    parser.add_argument('--clipping_bound', type=float, default=2.0, help="Gradient clipping bound")
 
-    parser.add_argument('--fisher_threshold', type=float, default=0.4,
+    parser.add_argument('--fisher_threshold', type=float, default=0.0,
                         help="Fisher information threshold for parameter selection")
     parser.add_argument('--lambda_1', type=float, default=0.1, help="Lambda value for EWC regularization term")
     parser.add_argument('--lambda_2', type=float, default=0.05,
@@ -39,7 +39,7 @@ def parse_args():
 
     parser.add_argument('--appendix', type=str, default='')
 
-    parser.add_argument('--sparsity_ratio', type=float, default=0.4,
+    parser.add_argument('--sparsity_ratio', type=float, default=0.0,
                         help="Gradient sparsity ratio (default: 0.3)")
 
     parser.add_argument('--noise_decay', type=float, default=1.0,
@@ -61,13 +61,13 @@ def parse_args():
                 help='DFL control parameter a (default: 4.0)')
     parser.add_argument('--dfl_b', type=float, default=501.0,
                 help='DFL feedback parameter b (default: 501.0)')
-    parser.add_argument('--dfl_k', type=int, default=7,
+    parser.add_argument('--dfl_k', type=int, default=3,
                 help='DFL delay steps k (default: 7)')
     parser.add_argument('--dfl_burn_in', type=int, default=2048,
                         help="Burn-in steps before using DFL samples (default: 2048)")
     parser.add_argument('--dfl_max_direct_uniform', type=int, default=4096,
                         help="Max direct DFL uniforms before phase expansion (default: 4096)")
-    parser.add_argument('--dfl_decimation', type=int, default=8,
+    parser.add_argument('--dfl_decimation', type=int, default=12,
                         help="DFL gap/decimation factor to break correlation (default: 12)")
 
     # 混沌衰减参数
@@ -80,9 +80,9 @@ def parse_args():
                         help="Differential privacy method: none, gaussian, dfl")
 
     # 新增：各DP方法的噪声因子
-    parser.add_argument('--sigma_factor_gaussian', type=float, default=0.30,
+    parser.add_argument('--sigma_factor_gaussian', type=float, default=0.01,
                         help="Noise multiplier factor for Gaussian DP (default: 0.10)")
-    parser.add_argument('--sigma_factor_dfl', type=float, default=0.30,
+    parser.add_argument('--sigma_factor_dfl', type=float, default=0.01,
                         help="Noise multiplier factor for DFL DP (default: 0.10)")
 
     # Gradient inversion risk simulator (paper-style attack/reconstruction evaluation)

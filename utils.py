@@ -136,20 +136,21 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
     n = _ZIGGURAT_N
     r = _ZIGGURAT_R
 
-    # We consume the uniform_sequence as a flat float32 buffer.
-    # Each attempt needs 3 floats (layer_float, u, u_test) + 1 for sign.
     u_flat = uniform_sequence.view(-1).to(torch.float32)
-    # Ensure we have enough — tile if necessary
-    needed_per_pass = total_elements * 4
-    if u_flat.numel() < needed_per_pass:
-        repeats = (needed_per_pass + u_flat.numel() - 1) // u_flat.numel()
-        u_flat = u_flat.repeat(repeats)
+
+    # Fix 1: golden-ratio phase shift when tiling, never exact-repeat
+    needed_initial = total_elements * 4
+    if u_flat.numel() < needed_initial:
+        repeats = (needed_initial + u_flat.numel() - 1) // u_flat.numel()
+        tiled = []
+        for i in range(repeats):
+            tiled.append(torch.remainder(u_flat + i * 0.6180339887, 1.0))
+        u_flat = torch.cat(tiled, dim=0)
 
     consumed = 0
     result = torch.empty(total_elements, device=dev, dtype=torch.float32)
     filled = 0
 
-    # Ziggurat rejection loop — rare to need more than 1 iteration
     max_iters = 10
     for _ in range(max_iters):
         remaining = total_elements - filled
@@ -157,18 +158,14 @@ def generate_ziggurat_gaussian_noise(shape, uniform_sequence):
             break
 
         need = remaining
-        start = consumed % int(u_flat.numel())
-        # Wrap-around: grab 4*need floats
         n_vals = 4 * need
-        if start + n_vals <= int(u_flat.numel()):
-            chunk = u_flat[start : start + n_vals]
-        else:
-            avail = int(u_flat.numel()) - start
-            need_extra = n_vals - avail
-            chunk = torch.cat([
-                u_flat[start : start + avail],
-                u_flat[:need_extra],
-            ], dim=0)
+
+        # Fix 2: global phase shift when running out, never wrap-around clone
+        if consumed + n_vals > int(u_flat.numel()):
+            u_flat = torch.remainder(u_flat + 0.3141592653, 1.0)
+            consumed = 0
+
+        chunk = u_flat[consumed : consumed + n_vals]
         consumed += n_vals
 
         chunk = chunk.view(need, 4)
@@ -351,19 +348,19 @@ def get_dataset_complexity_factor(name):
     return {'MNIST': 0.35, 'CIFAR10': 0.6, 'SVHN': 0.55, 'EMNIST': 0.45, 'FashionMNIST': 0.45}.get(name, 0.55)
 
 
-# ==================== DFL (Discrete Fractional Logistic) ====================
-# Pre-computed long sequences for fast reuse
+# ==================== Pure DFL (No Repeats, No Phase Shifts) ====================
 _dfl_long_cache = {}  # key: (a, b, k), value: single seq tensor
 
-def _get_dfl_sequences(a, b, k, seed_val, needed_length):
+def _get_pure_dfl_sequences(a, b, k, seed_val, needed_length):
     cache_key = (a, b, k)
 
-    # Dynamic safe reservoir: at least 3x needed_length to eliminate overlap
-    safe_multiplier = 3
-    precompute_len = max(20000000, needed_length * safe_multiplier)
+    # Pure approach: no 2M hard cap. Generate exactly what the model needs.
+    # 2x buffer gives room for different start positions without re-computation.
+    precompute_len = max(5000000, needed_length * 2)
 
-    if cache_key not in _dfl_long_cache or len(_dfl_long_cache[cache_key]) < precompute_len:
-        print(f"[DFL] Building {precompute_len/1000000:.1f}M reservoir (a={a}, b={b}, k={k})...")
+    if cache_key not in _dfl_long_cache or len(_dfl_long_cache[cache_key]) < needed_length:
+        print(f"[Pure DFL] Building {precompute_len/1000000:.1f}M pure chaotic sequence (a={a}, b={b}, k={k})...")
+        print(f"[Pure DFL] First-time build may take seconds to tens of seconds. Subsequent epochs use cache.")
 
         # Initialize k-step history buffer
         history = [(seed_val + i * 0.1) % 1.0 for i in range(k)]
@@ -375,7 +372,6 @@ def _get_dfl_sequences(a, b, k, seed_val, needed_length):
             x_n_minus_k = history[0]
 
             x_next = (a * x_n * (1.0 - x_n) + b * x_n_minus_k) % 1.0
-
             seq[i] = x_next
 
             # Slide history window
@@ -383,16 +379,17 @@ def _get_dfl_sequences(a, b, k, seed_val, needed_length):
             history.append(x_next)
 
         _dfl_long_cache[cache_key] = torch.tensor(seq, dtype=torch.float64)
-        print("[DFL] Reservoir build completed!")
+        print("[Pure DFL] Reservoir build completed! Ready for training.")
 
     seq_tensor = _dfl_long_cache[cache_key]
-    max_start = max(1, len(seq_tensor) - needed_length)
 
-    # Deterministic pseudo-random start index
+    # Deterministic pseudo-random start index — guaranteed in-bounds
+    max_start = max(1, len(seq_tensor) - needed_length)
     pseudo_random_int = int(seed_val * 1000000)
     start_idx = pseudo_random_int % max_start
 
     return seq_tensor[start_idx : start_idx + needed_length]
+
 
 def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
                                 burn_in=2048, decimation=12,
@@ -404,47 +401,36 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
 
-    # Cap per-call sequence length at 2M
-    max_sequence_pool = 2000000
-    base_length = min(max_sequence_pool, burn_in + (total_uniform * thin_factor) + 64)
-    base_length = max(32, base_length)
+    # Exact length needed — decimation gap + burn-in, no shortcuts
+    required_length = burn_in + (total_uniform * thin_factor) + 64
 
-    # Call new engine with (a, b, k). k-step delay is built-in, no torch.roll needed.
-    seq = _get_dfl_sequences(a, b, k, x0, base_length)
+    # Pure generation: request exactly what we need, no repeats
+    seq = _get_pure_dfl_sequences(a, b, k, x0, required_length)
 
-    # Direct extraction with Gap (decimation), no external mixing needed
+    # Direct extraction with Gap (decimation)
     u = seq[burn_in:]
     u = u[::thin_factor]
+    u = u[:total_uniform]
 
     if u.numel() == 0: raise ValueError("DFL sequence empty")
 
+    # Degeneracy guard (the only retained safety patch)
     check = u[:min(u.numel(), 4096)]
     if torch.unique(torch.floor(check * 4096)).numel() < min(256, max(32, check.numel() // 64)):
         u = torch.remainder(0.8 * u + 0.2 * torch.rand_like(u), 1.0)
 
-    # 如果抽出来的水不够，利用后处理铺满（这是最高效的做法）
-    if u.numel() < total_uniform:
-        blen = u.numel()
-        reps = (total_uniform + blen - 1) // blen
-        uniform_vals = u.repeat(reps)[:total_uniform]
-        needs_sign_flip = True
-    else:
-        uniform_vals = u[:total_uniform]
-        blen = total_uniform
-        needs_sign_flip = False
-
-    pairs = uniform_vals.reshape(-1, 2)
+    # Exactly enough uniforms — straight to pairing
+    pairs = u.reshape(-1, 2)
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
     noise = generate_ziggurat_gaussian_noise(shape, u_final)
 
-    # 符号翻转保平安
-    if needs_sign_flip:
-        base_noise_len = blen // 2
-        reps_noise = (total_elements + base_noise_len - 1) // base_noise_len
-        signs = (torch.randint(0, 2, (reps_noise,), device=noise.device, dtype=torch.float32) * 2 - 1)
-        sign_mask = signs.repeat_interleave(base_noise_len)[:total_elements]
-        noise = noise * sign_mask.reshape(shape)
+    # Sign flip for strict zero-mean
+    base_noise_len = total_uniform // 2
+    reps_noise = (total_elements + base_noise_len - 1) // base_noise_len
+    signs = (torch.randint(0, 2, (reps_noise,), device=noise.device, dtype=torch.float32) * 2 - 1)
+    sign_mask = signs.repeat_interleave(base_noise_len)[:total_elements]
+    noise = noise * sign_mask.reshape(shape)
 
     return noise

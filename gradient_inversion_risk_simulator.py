@@ -41,7 +41,7 @@ class DefenseSimulationConfig:
     dfl_b: float = 501.0
     dfl_k: int = 7
     dfl_burn_in: int = 2048
-        dfl_max_direct_uniform: int = 4096
+    dfl_max_direct_uniform: int = 4096
 
 
 _DATASET_STATS = {
