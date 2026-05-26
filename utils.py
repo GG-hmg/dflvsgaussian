@@ -281,9 +281,9 @@ def _get_pure_dfl_sequences(a, b, k, seed_val, needed_length):
 
     seq_tensor = _dfl_long_cache[cache_key]
 
-    # Deterministic pseudo-random start index — guaranteed in-bounds
+    # Hash-avalanche: even 0.0000001 difference in seed_val spreads across full pool
     max_start = max(1, len(seq_tensor) - needed_length)
-    pseudo_random_int = int(seed_val * 1000000)
+    pseudo_random_int = int((seed_val * 999999937.0) % 2147483647)
     start_idx = pseudo_random_int % max_start
 
     return seq_tensor[start_idx : start_idx + needed_length]
