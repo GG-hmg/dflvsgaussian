@@ -41,20 +41,20 @@ def build_chaotic_gaussian(num_samples: int) -> np.ndarray:
 
 def build_chaotic_gaussian_decorrelated(
         num_samples: int,
-        dfl_mu: float,
-        dfl_alpha: float,
+        dfl_a: float,
+        dfl_b: float,
+        dfl_k: int,
         dfl_burn_in: int,
-        dfl_max_direct_uniform: int
+        dfl_decimation: int,
 ) -> np.ndarray:
-    """Use fixed DFL generator from utils.py with decorrelation parameters."""
     chaotic = generate_dfl_gaussian_noise(
         shape=torch.Size([num_samples]),
-        mu=dfl_mu,
-        alpha=dfl_alpha,
+        a=dfl_a,
+        b=dfl_b,
+        k=dfl_k,
         x0=random.random(),
-        x1=random.random(),
         burn_in=dfl_burn_in,
-        max_direct_uniform=dfl_max_direct_uniform,
+        decimation=dfl_decimation,
     )
     return chaotic.detach().cpu().numpy()
 
@@ -124,12 +124,13 @@ def main() -> None:
                         help="Output image path")
     parser.add_argument("--use_legacy_chaotic", action="store_true",
                         help="Use old chaotic generator without decorrelation")
-    parser.add_argument("--dfl_mu", type=float, default=3.99, help="DFL control parameter mu")
-    parser.add_argument("--dfl_alpha", type=float, default=0.98, help="DFL fractional order alpha")
-    parser.add_argument("--dfl_burn_in", type=int, default=5000,
+    parser.add_argument("--dfl_a", type=float, default=4.0, help="DFL control parameter a")
+    parser.add_argument("--dfl_b", type=float, default=501.0, help="DFL feedback parameter b")
+    parser.add_argument("--dfl_k", type=int, default=3, help="DFL delay steps k")
+    parser.add_argument("--dfl_burn_in", type=int, default=2048,
                         help="Burn-in steps before collecting chaotic samples")
-    parser.add_argument("--dfl_max_direct_uniform", type=int, default=50000,
-                        help="Max direct DFL uniforms before phase expansion (plot mode)")
+    parser.add_argument("--dfl_decimation", type=int, default=12,
+                        help="DFL decimation/gap factor")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -142,10 +143,11 @@ def main() -> None:
     else:
         chaotic_seq = build_chaotic_gaussian_decorrelated(
             num_samples=args.num_samples,
-            dfl_mu=args.dfl_mu,
-            dfl_alpha=args.dfl_alpha,
+            dfl_a=args.dfl_a,
+            dfl_b=args.dfl_b,
+            dfl_k=args.dfl_k,
             dfl_burn_in=args.dfl_burn_in,
-            dfl_max_direct_uniform=args.dfl_max_direct_uniform,
+            dfl_decimation=args.dfl_decimation,
         )
 
     print_diagnostics("Normal sequence", normal_seq)

@@ -65,7 +65,7 @@ def parse_args():
                 help='DFL delay steps k (default: 7)')
     parser.add_argument('--dfl_burn_in', type=int, default=2048,
                         help="Burn-in steps before using DFL samples (default: 2048)")
-    parser.add_argument('--dfl_decimation', type=int, default=12,
+    parser.add_argument('--dfl_decimation', type=int, default=11,
                         help="DFL gap/decimation factor to break correlation (default: 12)")
 
     # 混沌衰减参数
