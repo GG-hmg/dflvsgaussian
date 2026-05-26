@@ -243,12 +243,11 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
 
     global_params = [param.clone().detach() for param in global_model.parameters()]
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=30,
-        eta_min=1e-5,
-    )
+    eta_min = 1e-5
+    total_epochs = getattr(args, 'global_epoch', 60)
+    current_lr = eta_min + 0.5 * (args.lr - eta_min) * (1 + math.cos(math.pi * current_epoch / total_epochs))
+
+    optimizer = optim.SGD(model.parameters(), lr=current_lr, momentum=0.9, weight_decay=0.0001)
     criterion = nn.CrossEntropyLoss()
 
     model.train()
@@ -414,7 +413,6 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
 
             optimizer.step()
 
-        scheduler.step()
         if batch_losses:
             epoch_losses.append(np.mean(batch_losses))
 
