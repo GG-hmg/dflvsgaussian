@@ -290,7 +290,7 @@ def _get_pure_dfl_sequences(a, b, k, seed_val, needed_length):
 
 
 def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
-                                burn_in=2048, decimation=12):
+                                burn_in=2048, decimation=12, device=None):
     total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
     if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
 
@@ -323,7 +323,8 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
     u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
 
-    # Fix 2: Ziggurat already assigns sign via the 4th uniform from DFL sequence.
-    # No external sign flip needed — 100% pure chaotic origin.
+    if device is not None:
+        u_final = u_final.to(device, non_blocking=True)
+
     noise = generate_ziggurat_gaussian_noise(shape, u_final)
     return noise

@@ -176,7 +176,8 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
         x0=np.random.random(),
         decimation=decimation,
         burn_in=burn_in,
-    ).to(device)
+        device=device,
+    )
 
     # 校准方差为1
     with torch.no_grad():
