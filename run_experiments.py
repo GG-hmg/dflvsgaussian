@@ -189,7 +189,6 @@ class ExperimentRunner:
                     params.get("dfl_k", "7"),
                     "--dfl_burn_in",
                     params.get("dfl_burn_in", "512"),
-                    "4096",
                     "--dfl_decimation",
                     params.get("dfl_decimation", "4"),
                 ]
