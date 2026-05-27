@@ -165,15 +165,15 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     decimation = getattr(args, 'dfl_decimation', 12)
     burn_in = getattr(args, 'dfl_burn_in', 2048)
 
-    seed_value = (client_id * 1000 + epoch * 100 + batch_idx) % 10000
-    np.random.seed(seed_value)
+    seed_value = client_id * 1000000 + epoch * 10000 + batch_idx
+    x0 = ((seed_value * 2654435761) & 0xFFFFFFFF) / 4294967296.0
 
     chaotic_noise = generate_dfl_gaussian_noise(
         shape,
         a=a,
         b=b,
         k=k,
-        x0=np.random.random(),
+        x0=x0,
         decimation=decimation,
         burn_in=burn_in,
         device=device,

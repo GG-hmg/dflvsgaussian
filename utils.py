@@ -17,7 +17,7 @@ def generate_random_gaussian_noise(shape, device=None, dtype=torch.float32):
 
     target_device = device if device is not None else torch.device("cpu")
     uniform_vals = torch.rand(total_elements, device=target_device, dtype=torch.float32)
-    noise = generate_ziggurat_gaussian_noise(shape, uniform_vals)
+    noise = generate_inverse_cdf_gaussian_noise(shape, uniform_vals)
     if dtype is not None:
         noise = noise.to(dtype=dtype)
     if device is not None:
@@ -326,5 +326,5 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     if device is not None:
         u_final = u_final.to(device, non_blocking=True)
 
-    noise = generate_ziggurat_gaussian_noise(shape, u_final)
+    noise = generate_inverse_cdf_gaussian_noise(shape, u_final)
     return noise
