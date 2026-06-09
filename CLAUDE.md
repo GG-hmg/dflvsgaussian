@@ -19,10 +19,24 @@ DynamicPFL is a research project studying **chaotic noise mechanisms** in Differ
 
 ## DP framing (read this before writing about ε)
 
-The Gaussian mechanism's `σ = C·√(2·ln(1.25/δ))/ε` gives **(ε, δ)-DP only when the noise is iid Gaussian**. In this codebase:
+The Gaussian mechanism's `σ = C·√(2·ln(1.25/δ))/ε` gives **(ε, δ)-DP only when the noise is iid Gaussian and applied once**. In this codebase the picture is more complicated; the following three caveats must all be acknowledged in any paper/report:
+
+### Caveat 1 — only `noise_kind=gaussian` even fits the mechanism
 
 - ✅ `noise_kind=gaussian` carries the formal DP guarantee at the stated ε.
-- ⚠️ The other four kinds **reuse the same σ magnitude for a fair noise-budget comparison but make no formal DP claim** (non-iid, non-Gaussian, or both). Any paper/report must include this caveat — otherwise reviewers will (correctly) call this misleading.
+- ⚠️ The other four kinds (`dfl_uniform`, `dfl_gaussian`, `mix_dgauss_gauss`, `mix_dgauss_dchaos`) **reuse the same σ magnitude for a fair noise-budget comparison but make no formal DP claim** — they are non-iid, non-Gaussian, or both, and fall outside the Gaussian-mechanism theorem entirely.
+
+### Caveat 2 — the formula is per-application, not cumulative
+
+Training applies noise on **every batch of every local epoch of every global round**, roughly `local_epoch × batches_per_epoch × global_epoch ≈ 4 × 500 × 30 = 60 000` applications per client. The textbook formula gives (ε, δ)-DP for **one** application; cumulative privacy loss across all applications composes (RDP / moment accountant) and the true total ε is **much larger** than the stated `target_epsilon`. Without an RDP accountant we cannot quote a meaningful cumulative ε.
+
+### Caveat 3 — `adaptive_privacy_budget` isn't standard composition
+
+`utils.py:adaptive_privacy_budget` allocates ε per client as `ε_target · √(s_i / Σs) · n` (clipped to `[0.3ε, 2ε]`), then scales so the budgets average to `ε_target`. For 3 equal-size clients each client ends up with budget ≈ ε_target. This is **per-client**, not a global system ε: the total privacy spend across all clients is roughly `n · ε_target`, not `ε_target`. Standard FL-DP composition would use a privacy accountant; this codebase does not.
+
+### Practical implication
+
+The numeric `target_epsilon` setting in `run_experiments.py` is best read as a **noise-magnitude knob** (it determines σ), not as a formal DP guarantee. If/when the paper claims a DP guarantee, the safe scope is: "per-application, per-client, only the gaussian baseline". Anything stronger requires plugging in an RDP accountant.
 
 ## Critical Platform Constraints
 
@@ -130,11 +144,12 @@ Global Model → Local Training (Client)
 | `dfl_a, dfl_b, dfl_k` | 4.0, 501.0, 3 | DFL map parameters |
 | `dfl_decimation` | 11 | Gap factor for decorrelation |
 | `dfl_burn_in` | 2048 | Burn-in steps before collecting samples |
-| `target_epsilon` | 8.0 | One-shot Gaussian mechanism σ ≈ 1.22 at C=2.0, δ=1e-5. Only `noise_kind=gaussian` gets the formal DP at this ε. |
+| `target_epsilon` | 20.0 | One-shot Gaussian mechanism σ ≈ 0.49 at C=2.0, δ=1e-5. Only `noise_kind=gaussian` gets the formal DP at this ε. Raised from 8.0 because ε=8 collapsed every method to ~10–30% on CIFAR10, leaving no headroom to differentiate noise mechanisms. |
+| `gir_attack_trials` | 5 | Per-epoch anti-inversion score is averaged over this many inversion attacks. With trials=1 the single-attack noise dominated (~0.46–0.74 swings); trials=5 cuts that to roughly ±0.05. |
 | `epochs` | 30 | |
 | `seed` | 20260313 | Fixed across all `run_experiments.py` sessions. |
 
-**Expected accuracy under real DP**: at ε=8 / C=2.0 / σ≈1.22, CIFAR10 typically converges to ~10–30% (vs ~75% under the old sigma_factor=0.01 setup that had broken the DP claim).
+**Expected accuracy under current settings**: at ε=20 / C=2.0 / σ≈0.49, CIFAR10 should reach ~40–55% over 30 epochs — enough headroom for noise mechanisms to differentiate. (Under the previous ε=8 setting everything collapsed to ~10–30%.)
 
 ## Sampling Comparison (2026-05-27, historical)
 

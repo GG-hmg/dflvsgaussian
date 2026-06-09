@@ -44,7 +44,10 @@ class ExperimentRunner:
 
         self.gir_common = {
             "gir_attack_steps": "12",
-            "gir_attack_trials": "1",
+            # trials=5: with trials=1 the single-attack noise dominated the
+            # per-epoch anti-inversion signal (~0.46–0.74 swings observed).
+            # Averaging over 5 trials shrinks that to roughly ±0.05.
+            "gir_attack_trials": "5",
             "gir_attack_batch_size": "1",
             "gir_attack_lr": "0.1",
             "gir_eval_interval": "0",
@@ -54,18 +57,23 @@ class ExperimentRunner:
         # Per-dataset training hyper-parameters. Shared by every noise_kind:
         # noise injection only changes which RNG fills the noise tensor — the
         # rest of training is identical so the comparison stays fair.
+        #
+        # target_epsilon=20.0: ε=8 collapsed every noise_kind to ~10–30% on
+        # CIFAR10, leaving no room to differentiate mechanisms. ε=20 lifts the
+        # accuracy ceiling enough for treatments to spread, at the cost of a
+        # weaker (still meaningful) DP guarantee for the gaussian baseline.
         self.dataset_params = {
             "CIFAR10":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
-                             "target_epsilon": "8.0", "clipping_bound": "2.0", "sparsity_ratio": "0.0",
+                             "target_epsilon": "20.0", "clipping_bound": "2.0", "sparsity_ratio": "0.0",
                              "dfl_decimation": "11"},
             "MNIST":        {"num_clients": "3", "batch_size": "64", "lr": "0.002", "local_epoch": "3",
-                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
             "SVHN":         {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
-                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
             "FashionMNIST": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "local_epoch": "3",
-                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
         }
 
