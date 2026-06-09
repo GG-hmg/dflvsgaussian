@@ -289,20 +289,6 @@ def _combine_leakage(avg_leakage: float, worst_leakage: float) -> float:
     return float(max(0.0, min(1.0, 0.5 * avg_leakage + 0.5 * worst_leakage)))
 
 
-def _wiener_denoise_target_gradients(target_grads: List[torch.Tensor], sigma: float) -> List[torch.Tensor]:
-    """
-    Gaussian-aware denoising under additive i.i.d. Gaussian assumption.
-    This models a stronger attacker for Gaussian-noise defense.
-    """
-    noise_var = float(sigma) * float(sigma)
-    denoised: List[torch.Tensor] = []
-    for grad in target_grads:
-        obs_var = torch.var(grad)
-        alpha = torch.clamp(1.0 - (noise_var / (obs_var + 1e-12)), min=0.0, max=1.0)
-        denoised.append(alpha * grad)
-    return denoised
-
-
 def _run_inversion_trials(
     attack_model: torch.nn.Module,
     params: List[torch.nn.Parameter],
@@ -435,44 +421,6 @@ def simulate_gradient_inversion_risk(
         avg_mse = float(base_result["avg_mse"])
         best_mse = float(base_result["best_mse"])
 
-        # Distribution-aware attacker for Gaussian-noise defense:
-        # under i.i.d. Gaussian assumption, attacker can denoise observed gradients
-        # and run a stronger inversion path.
-        gaussian_aware_used = False
-        gaussian_aware_leakage = leakage_risk
-        if (
-            defense_cfg.dp_method == "gaussian"
-            and defense_cfg.apply_noise
-            and defense_cfg.sigma > 0
-        ):
-            gaussian_aware_used = True
-            denoised_target_grads = _wiener_denoise_target_gradients(target_grads, defense_cfg.sigma)
-            aware_result = _run_inversion_trials(
-                attack_model=attack_model,
-                params=params,
-                x_true=x_true,
-                y_true=y_true,
-                target_grads=denoised_target_grads,
-                risk_cfg=risk_cfg,
-                low=low,
-                high=high,
-                seed_context=int(defense_cfg.seed_context),
-                step_ratio=0.6,
-                lr_scale=0.8,
-                trial_ratio=0.5,
-                seed_offset=200003,
-            )
-            gaussian_aware_leakage = float(aware_result["leakage_risk"])
-            # Strong attacker picks the easier reconstruction path.
-            if gaussian_aware_leakage > leakage_risk:
-                leakage_risk = gaussian_aware_leakage
-                avg_leakage = float(aware_result["avg_leakage"])
-                worst_leakage = float(aware_result["worst_leakage"])
-                avg_psnr = float(aware_result["avg_psnr"])
-                best_psnr = float(aware_result["best_psnr"])
-                avg_mse = float(aware_result["avg_mse"])
-                best_mse = float(aware_result["best_mse"])
-
         # Anti-inversion ability should be higher when perturbation is stronger
         # and attack reconstruction leakage is lower.
         defense_score = float(max(0.0, min(1.0, perturb_score * (1.0 - leakage_risk))))
@@ -481,8 +429,6 @@ def simulate_gradient_inversion_risk(
         del attack_model
         del clean_grads
         del target_grads
-        if gaussian_aware_used:
-            del denoised_target_grads
         # 不用 empty_cache（阻塞 GPU 异步），改用 CPU 端轻量 GC
         gc.collect()
         # ==========================
@@ -499,8 +445,6 @@ def simulate_gradient_inversion_risk(
             "best_mse": best_mse,
             "perturbation_ratio": perturb_ratio,
             "perturbation_score": perturb_score,
-            "gaussian_aware_used": gaussian_aware_used,
-            "gaussian_aware_leakage": gaussian_aware_leakage,
             "noise_gaussianity": float(noise_stats["gaussianity"]),
             "noise_structure": float(noise_stats["structure"]),
             "noise_skew": float(noise_stats["skew"]),

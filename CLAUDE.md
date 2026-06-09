@@ -92,10 +92,10 @@ Global Model → Local Training (Client)
 - GIR runs at most `gir_max_evals_per_client_update` times per update.
 
 **gradient_inversion_risk_simulator.py** — Privacy Evaluator
-- `simulate_gradient_inversion_risk(..., real_noisy_grads=None)`: Deep-copies the model, runs gradient-matching inversion attacks, returns leakage/PSNR/MSE scores. "Anti-Inversion Ability" = defense score (higher = better).
+- `simulate_gradient_inversion_risk(..., real_noisy_grads=None)`: Deep-copies the model, runs a gradient-matching inversion attack, returns leakage/PSNR/MSE scores. "Anti-Inversion Ability" = defense score (higher = better).
 - **When `real_noisy_grads` is supplied** (the actual clipped+noised grads from training), they are used as the attacker-observed gradient — that is what the attacker genuinely sees.
-- When omitted, falls back to regenerating noise inside the simulator via `defense_cfg` (useful for unit tests but not for true measurement).
-- **NOTE**: the simulator still applies a `±0.22` method-aware adjustment (line ~459) that adds risk to Gaussian and subtracts from DFL. This is a known issue (review #1) — not yet removed pending discussion.
+- When omitted, falls back to regenerating noise inside the simulator via `defense_cfg` (useful for unit tests, not for measurement).
+- **No method-aware biases**: the leakage score comes purely from the attack's reconstruction metrics. The previous `±0.22` post-hoc adjustment and the Gaussian-only Wiener-denoising stronger-attacker path were removed (they systematically tilted comparisons in favour of DFL).
 
 **run_experiments.py** — Batch Runner
 - Per-dataset, per-method parameter dicts. Validates sigma/epsilon equality between methods.
