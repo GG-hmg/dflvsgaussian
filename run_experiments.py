@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import json
 import os
 import re
@@ -10,20 +10,38 @@ from datetime import datetime
 import numpy as np
 
 
+VALID_NOISE_KINDS = [
+    "gaussian",
+    "dfl_uniform",
+    "dfl_gaussian",
+    "mix_dgauss_gauss",
+    "mix_dgauss_dchaos",
+]
+
+
 class ExperimentRunner:
+    """
+    Batch driver for ours.py — runs the same training config for several
+    noise_kind variants and writes timestamped artifacts under
+    experiment_results/.
+
+    File naming (one session = one timestamp, shared across every artifact):
+        {noise_kind}_{dataset}_{ts}.log    real-time training log
+        {noise_kind}_{dataset}_{ts}.txt    final summary
+        comparison_results_{ts}.json       JSON aggregate
+        comparison_summary_{ts}.csv        CSV aggregate
+    """
+
     def __init__(self):
         self.results_dir = "experiment_results"
         os.makedirs(self.results_dir, exist_ok=True)
-
-        # Single session timestamp shared by every log/output/chart in this run.
-        # Format matches the original comparison_*_{timestamp}.png convention.
-        # Naming scheme: {method}_{dataset}_{timestamp}_run{id}.{ext}
         self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        self.dp_methods = ["none", "gaussian", "dfl"]
+        self.noise_kinds = ["gaussian", "dfl_gaussian"]
         self.datasets = ["CIFAR10", "MNIST", "SVHN"]
         self.global_epochs = {"CIFAR10": 30, "MNIST": 30, "SVHN": 30}
-        self.local_epochs = {"CIFAR10": 4, "MNIST": 3, "SVHN": 4}
+        self.mix_alpha = 0.5
+
         self.gir_common = {
             "gir_attack_steps": "12",
             "gir_attack_trials": "1",
@@ -33,152 +51,65 @@ class ExperimentRunner:
             "gir_max_evals_per_client_update": "1",
         }
 
-        # Pure mechanism comparison:
-        # keep epsilon and core training settings aligned across DP methods.
-        # Sigma is derived from epsilon by the Gaussian mechanism formula
-        # (no per-method sigma_factor multiplier — that broke the DP claim).
+        # Per-dataset training hyper-parameters. Shared by every noise_kind:
+        # noise injection only changes which RNG fills the noise tensor — the
+        # rest of training is identical so the comparison stays fair.
         self.dataset_params = {
-            "FashionMNIST": {
-                "none":     {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl":      {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
-            },
-            "MNIST": {
-                "none":     {"num_clients": "3", "batch_size": "64", "lr": "0.001", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl":      {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
-            },
-            "SVHN": {
-                "none":     {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
-            },
-            "CIFAR10": {
-                "none":     {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "11", "sparsity_ratio": "0.0"},
-            },
+            "CIFAR10":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
+                             "target_epsilon": "8.0", "clipping_bound": "2.0", "sparsity_ratio": "0.0",
+                             "dfl_decimation": "11"},
+            "MNIST":        {"num_clients": "3", "batch_size": "64", "lr": "0.002", "local_epoch": "3",
+                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "dfl_decimation": "8"},
+            "SVHN":         {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
+                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "dfl_decimation": "8"},
+            "FashionMNIST": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "local_epoch": "3",
+                             "target_epsilon": "8.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "dfl_decimation": "8"},
         }
-        self._validate_privacy_order()
 
-    def _validate_privacy_order(self):
-        """
-        Enforce fair comparison settings:
-        - Shared training hyper-parameters are identical across methods.
-        - Gaussian and DFL use the same target epsilon (sigma is derived).
-        """
-        for dataset, method_params in self.dataset_params.items():
-            required = {"none", "gaussian", "dfl"}
-            if not required.issubset(method_params.keys()):
-                continue
+    def build_command(self, dataset: str, noise_kind: str):
+        if noise_kind not in VALID_NOISE_KINDS:
+            raise ValueError(f"Unknown noise_kind {noise_kind!r}; choose from {VALID_NOISE_KINDS}")
 
-            none_cfg = method_params["none"]
-            gaussian_cfg = method_params["gaussian"]
-            dfl_cfg = method_params["dfl"]
-
-            # Keys that MUST be identical across all three methods for fair comparison
-            # Excludes: lr (DFL/Gaussian may need different tuning)
-            shared_keys = [
-                "num_clients", "batch_size",
-                "target_epsilon", "clipping_bound", "local_epoch",
-                "sparsity_ratio",
-            ]
-            for key in shared_keys:
-                n_val = str(none_cfg.get(key))
-                g_val = str(gaussian_cfg.get(key))
-                s_val = str(dfl_cfg.get(key))
-                if not (n_val == g_val == s_val):
-                    raise ValueError(
-                        f"Unfair setting in {dataset}/{key}: none={n_val}, gaussian={g_val}, dfl={s_val}"
-                    )
-
-            gaussian_eps = float(gaussian_cfg["target_epsilon"])
-            dfl_eps = float(dfl_cfg["target_epsilon"])
-            if abs(gaussian_eps - dfl_eps) > 1e-12:
-                raise ValueError(
-                    f"Unfair epsilon in {dataset}: gaussian({gaussian_eps}) must equal dfl({dfl_eps})."
-                )
-
-    def build_command(self, dataset: str, dp_method: str):
-        params = dict(self.dataset_params.get(dataset, self.dataset_params["CIFAR10"])[dp_method])
-        # Allow CLI override of chaotic_factor for DFL alpha sweeps.
-        override = getattr(self, "chaotic_factor_override", None)
-        if override is not None and dp_method == "dfl":
-            params["chaotic_factor"] = str(override)
-
+        params = self.dataset_params.get(dataset, self.dataset_params["CIFAR10"])
         cmd = [
-            sys.executable,
-            "-u",
-            "ours.py",
-            "--dataset",
-            dataset,
-            "--global_epoch",
-            str(self.global_epochs[dataset]),
-            "--num_clients",
-            params["num_clients"],
-            "--local_epoch",
-            params["local_epoch"],
-            "--batch_size",
-            params["batch_size"],
-            "--lr",
-            params["lr"],
-            "--target_epsilon",
-            params["target_epsilon"],
-            "--target_delta",
-            "1e-5",
-            "--clipping_bound",
-            params["clipping_bound"],
-            "--dir_alpha",
-            "100",
-            "--device",
-            "0",
-            "--user_sample_rate",
-            "1.0",
-            "--seed",
-            "20260313",
-            "--sparsity_ratio",
-            params.get("sparsity_ratio", "0.0"),
-            "--dp_method",
-            dp_method,
+            sys.executable, "-u", "ours.py",
+            "--dataset", dataset,
+            "--global_epoch", str(self.global_epochs[dataset]),
+            "--num_clients", params["num_clients"],
+            "--local_epoch", params["local_epoch"],
+            "--batch_size", params["batch_size"],
+            "--lr", params["lr"],
+            "--target_epsilon", params["target_epsilon"],
+            "--target_delta", "1e-5",
+            "--clipping_bound", params["clipping_bound"],
+            "--dir_alpha", "100",
+            "--device", "0",
+            "--user_sample_rate", "1.0",
+            "--seed", "20260313",
+            "--sparsity_ratio", params.get("sparsity_ratio", "0.0"),
+            "--noise_kind", noise_kind,
+            "--mix_alpha", str(self.mix_alpha),
         ]
-
         for k, v in self.gir_common.items():
             cmd.extend([f"--{k}", v])
 
-        if dp_method == "none":
-            cmd.extend(["--no_noise"])
-        elif dp_method == "gaussian":
-            cmd.extend(
-                [
-                    "--use_chaotic",
-                    "--chaotic_factor",
-                    "0.0",
-                ]
-            )
-        else:
-            cmd.extend(
-                [
-                    "--use_chaotic",
-                    "--chaotic_factor",
-                    params.get("chaotic_factor", "0.3"),
-                    "--dfl_a",
-                    params.get("dfl_a", "4.0"),
-                    "--dfl_b",
-                    params.get("dfl_b", "501.0"),
-                    "--dfl_k",
-                    params.get("dfl_k", "7"),
-                    "--dfl_burn_in",
-                    params.get("dfl_burn_in", "512"),
-                    "--dfl_decimation",
-                    params.get("dfl_decimation", "4"),
-                ]
-            )
-
+        # DFL parameters are needed by every non-gaussian noise_kind. Passing
+        # them unconditionally is harmless for gaussian (just ignored).
+        cmd.extend([
+            "--dfl_a", "4.0",
+            "--dfl_b", "501.0",
+            "--dfl_k", "3",
+            "--dfl_burn_in", "2048",
+            "--dfl_decimation", params.get("dfl_decimation", "11"),
+        ])
         return cmd
 
-    def run_experiment(self, dataset: str, dp_method: str):
-        print(f"\nRunning {dataset} - {dp_method}")
-        cmd = self.build_command(dataset, dp_method)
+    def run_experiment(self, dataset: str, noise_kind: str):
+        print(f"\nRunning {dataset} - {noise_kind}")
+        cmd = self.build_command(dataset, noise_kind)
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -190,44 +121,30 @@ class ExperimentRunner:
         print(f"Start time: {datetime.fromtimestamp(start_time).strftime('%H:%M:%S')}")
 
         process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=".",
-            shell=False,
-            env=env,
-            bufsize=1,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+            cwd=".", shell=False, env=env, bufsize=1,
         )
 
-        output_lines = []
-        last_log_time = time.time()
-        # Naming: {method}_{dataset}_{session_timestamp}.{ext}
-        # Matches the original comparison_{dataset}_{timestamp}.png style; all files
-        # from one ExperimentRunner instance share the same session_timestamp so a
-        # plot can be located by timestamp alone.
         ts = self.session_timestamp
-        output_file = os.path.join(self.results_dir, f"{dp_method}_{dataset}_{ts}.txt")
-        live_log_file = os.path.join(self.results_dir, f"{dp_method}_{dataset}_{ts}.log")
+        output_file = os.path.join(self.results_dir, f"{noise_kind}_{dataset}_{ts}.txt")
+        live_log_file = os.path.join(self.results_dir, f"{noise_kind}_{dataset}_{ts}.log")
 
-        # Create live log file immediately
         with open(live_log_file, "w", encoding="utf-8") as log_f:
             log_f.write("命令: " + " ".join(cmd) + "\n")
             log_f.write(f"开始时间: {datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')}\n")
             log_f.write("=" * 80 + "\n")
-
         with open(output_file, "w", encoding="utf-8") as f:
             f.write("命令: " + " ".join(cmd) + "\n")
 
+        output_lines = []
+        last_log_time = time.time()
         while True:
             line = process.stdout.readline() if process.stdout is not None else ""
             if line:
                 print(line.rstrip("\n"))
                 sys.stdout.flush()
                 output_lines.append(line)
-                # Write to live log file immediately
                 with open(live_log_file, "a", encoding="utf-8") as log_f:
                     log_f.write(line)
                     log_f.flush()
@@ -246,15 +163,10 @@ class ExperimentRunner:
 
         return_code = process.wait()
         stdout_text = "".join(output_lines)
-
         elapsed = time.time() - start_time
         print(f"Elapsed: {elapsed:.1f}s (~{elapsed / 60:.1f}min), return code={return_code}")
 
         with open(output_file, "a", encoding="utf-8") as f:
-            f.write(f"返回码: {return_code}\n")
-            f.write(f"运行时间: {elapsed:.1f}秒\n")
-            f.write("=== 标准输出 ===\n")
-            f.write(stdout_text)
             f.write(f"返回码: {return_code}\n")
             f.write(f"运行时间: {elapsed:.1f}秒\n")
             f.write("=== 标准输出 ===\n")
@@ -271,27 +183,18 @@ class ExperimentRunner:
 
     def parse_results(self, output: str, elapsed_time: float, dataset: str):
         metrics = {
-            "accuracies": [],
-            "training_time": elapsed_time,
-            "final_accuracy": 0,
-            "convergence_epoch": 0,
-            "peak_accuracy": 0,
-            "accuracy_std": 0,
-            "improvement": 0,
-            "gradient_inversion_ability": 0,
-            "gradient_inversion_risk": 0,
+            "accuracies": [], "training_time": elapsed_time,
+            "final_accuracy": 0, "convergence_epoch": 0,
+            "peak_accuracy": 0, "accuracy_std": 0, "improvement": 0,
+            "gradient_inversion_ability": 0, "gradient_inversion_risk": 0,
         }
-
         if not output:
             return metrics
 
-        # 优先尝试提取 "平均准确率历程:" 后面的列表（含百分号）
-        acc_pattern = r"平均准确率历程:\s*\[([^\]]+)\]"
-        match = re.search(acc_pattern, output)
-        if match:
-            items = match.group(1).split(",")
+        m = re.search(r"平均准确率历程:\s*\[([^\]]+)\]", output)
+        if m:
             vals = []
-            for item in items:
+            for item in m.group(1).split(","):
                 cleaned = re.sub(r"[^0-9\.\-]", "", item.strip())
                 if cleaned:
                     try:
@@ -300,83 +203,14 @@ class ExperimentRunner:
                         pass
             if len(vals) >= 2:
                 metrics["accuracies"] = vals
-                # 继续解析风险等其他指标，不在此处 return，因为还要提取风险等
 
-        # 如果上面没找到，尝试匹配包含百分号的列表（兼容旧输出）
-        if not metrics["accuracies"]:
-            list_candidates = re.findall(r"\[([0-9\.,\s%\-]+)\]", output)
-            # 从后往前找，优先找包含百分号的列表
-            for candidate in reversed(list_candidates):
-                if "%" in candidate:
-                    vals = []
-                    for item in candidate.split(","):
-                        cleaned = re.sub(r"[^0-9\.\-]", "", item.strip())
-                        if cleaned:
-                            try:
-                                vals.append(float(cleaned))
-                            except ValueError:
-                                pass
-                    if len(vals) >= 2:
-                        metrics["accuracies"] = vals
-                        break
+        ability_match = re.search(r"最终抗梯度反演能力:\s*(\d+\.\d+)", output)
+        if not ability_match:
+            ability_match = re.search(r"平均抗梯度反演能力:\s*(\d+\.\d+)", output)
+        if ability_match:
+            metrics["gradient_inversion_ability"] = float(ability_match.group(1))
+            metrics["gradient_inversion_risk"] = max(0.0, min(1.0, 1.0 - metrics["gradient_inversion_ability"]))
 
-        # 如果仍然没有，回退到任意长度≥3的列表（但排除明显是数据量的列表）
-        if not metrics["accuracies"]:
-            list_candidates = re.findall(r"\[([0-9\.,\s\-]+)\]", output)
-            for candidate in reversed(list_candidates):
-                vals = []
-                for item in candidate.split(","):
-                    cleaned = re.sub(r"[^0-9\.\-]", "", item.strip())
-                    if cleaned:
-                        try:
-                            num = float(cleaned)
-                            # 排除过大数值（如数据量>1000），因为准确率通常在0-100之间
-                            if num > 1000:
-                                continue
-                            vals.append(num)
-                        except ValueError:
-                            pass
-                if len(vals) >= 3:
-                    metrics["accuracies"] = vals
-                    break
-
-        # 优先提取“抗梯度反演能力”（越高越好）
-        ability_patterns = [
-            r"平均抗梯度反演能力:\s*(\d+\.\d+)",
-            r"最终抗梯度反演能力:\s*(\d+\.\d+)",
-            r"抗梯度反演能力[^\d]*(\d+\.\d+)",
-        ]
-        for pattern in ability_patterns:
-            matches = re.findall(pattern, output)
-            if matches:
-                try:
-                    metrics["gradient_inversion_ability"] = float(matches[-1])
-                    metrics["gradient_inversion_risk"] = max(0.0, min(1.0, 1.0 - metrics["gradient_inversion_ability"]))
-                    break
-                except ValueError:
-                    pass
-
-        # 兼容旧日志：只有“风险”时，自动转成能力=1-risk
-        if metrics["gradient_inversion_ability"] == 0:
-            risk_patterns = [
-                r"平均梯度反演风险:\s*(\d+\.\d+)",
-                r"最终梯度反演风险:\s*(\d+\.\d+)",
-                r"risk[^\d]*(\d+\.\d+)",
-                r"Risk[^\d]*(\d+\.\d+)",
-                r"风险[^\d]*(\d+\.\d+)"
-            ]
-            for pattern in risk_patterns:
-                matches = re.findall(pattern, output)
-                if matches:
-                    try:
-                        risk_value = float(matches[-1])
-                        metrics["gradient_inversion_risk"] = risk_value
-                        metrics["gradient_inversion_ability"] = max(0.0, min(1.0, 1.0 - risk_value))
-                        break
-                    except ValueError:
-                        pass
-
-        # 如果 accuracies 不为空，计算其他指标
         accs = metrics["accuracies"]
         if accs:
             metrics["final_accuracy"] = accs[-1]
@@ -384,14 +218,12 @@ class ExperimentRunner:
             metrics["accuracy_std"] = float(np.std(accs))
             metrics["improvement"] = accs[-1] - accs[0] if len(accs) > 1 else 0.0
             metrics["convergence_epoch"] = self.calculate_convergence_epoch(accs)
-
         return metrics
 
     def calculate_convergence_epoch(self, accuracies):
         if not accuracies:
             return 0
-        final_acc = accuracies[-1]
-        threshold = final_acc * 0.95
+        threshold = accuracies[-1] * 0.95
         for i, acc in enumerate(accuracies):
             if acc >= threshold:
                 return i + 1
@@ -403,73 +235,73 @@ class ExperimentRunner:
         all_times = {d: {} for d in self.datasets}
 
         for dataset in self.datasets:
-            for dp_method in self.dp_methods:
+            for noise_kind in self.noise_kinds:
                 try:
-                    m = self.run_experiment(dataset, dp_method)
+                    m = self.run_experiment(dataset, noise_kind)
                 except Exception as e:
-                    print(f"Run failed: {dataset}/{dp_method}: {e}")
+                    print(f"Run failed: {dataset}/{noise_kind}: {e}")
                     continue
-
-                all_results[dataset][dp_method] = m["accuracies"]
-                all_abilities[dataset][dp_method] = float(m["gradient_inversion_ability"])
-                all_times[dataset][dp_method] = float(m["training_time"])
+                all_results[dataset][noise_kind] = m["accuracies"]
+                all_abilities[dataset][noise_kind] = float(m["gradient_inversion_ability"])
+                all_times[dataset][noise_kind] = float(m["training_time"])
 
         self.save_results(all_results, all_abilities, all_times)
         return all_results
 
     def save_results(self, all_results, all_abilities, all_times):
-        # Reuse the session timestamp so JSON/CSV match the run logs and chart.
-        timestamp = self.session_timestamp
-
-        json_file = os.path.join(self.results_dir, f"comparison_results_{timestamp}.json")
+        ts = self.session_timestamp
+        json_file = os.path.join(self.results_dir, f"comparison_results_{ts}.json")
         with open(json_file, "w", encoding="utf-8") as f:
             payload = {}
-            for dataset, methods in all_results.items():
+            for dataset, kinds in all_results.items():
                 payload[dataset] = {}
-                for method, accs in methods.items():
-                    method_cfg = self.dataset_params.get(dataset, {}).get(method, {})
-                    ability = all_abilities.get(dataset, {}).get(method, 0.0)
-                    payload[dataset][method] = {
+                for kind, accs in kinds.items():
+                    ds_cfg = self.dataset_params.get(dataset, {})
+                    ability = all_abilities.get(dataset, {}).get(kind, 0.0)
+                    payload[dataset][kind] = {
                         "accuracies": accs,
                         "anti_inversion_ability": ability,
                         "risk": max(0.0, min(1.0, 1.0 - ability)),
-                        "training_time": all_times.get(dataset, {}).get(method, 0.0),
+                        "training_time": all_times.get(dataset, {}).get(kind, 0.0),
                         "final_accuracy": accs[-1] if accs else 0.0,
                         "convergence_epoch": self.calculate_convergence_epoch(accs),
-                        "target_epsilon": float(method_cfg.get("target_epsilon", 0.0)),
-                        "clipping_bound": float(method_cfg.get("clipping_bound", 0.0)),
-                        "chaotic_factor": float(method_cfg.get("chaotic_factor", 0.0)),
+                        "target_epsilon": float(ds_cfg.get("target_epsilon", 0.0)),
+                        "clipping_bound": float(ds_cfg.get("clipping_bound", 0.0)),
+                        "mix_alpha": float(self.mix_alpha) if kind.startswith("mix_") else None,
                     }
             json.dump(payload, f, indent=2, ensure_ascii=False)
 
-        csv_file = os.path.join(self.results_dir, f"comparison_summary_{timestamp}.csv")
+        csv_file = os.path.join(self.results_dir, f"comparison_summary_{ts}.csv")
         with open(csv_file, "w", encoding="utf-8") as f:
-            f.write("Dataset,DP_Method,Initial_Accuracy,Final_Accuracy,Improvement,Training_Time,Convergence_Epoch,Anti_Inversion_Ability,Leakage_Risk,Peak_Accuracy\n")
+            f.write("Dataset,Noise_Kind,Initial_Accuracy,Final_Accuracy,Improvement,Training_Time,Convergence_Epoch,Anti_Inversion_Ability,Leakage_Risk,Peak_Accuracy\n")
             for dataset in self.datasets:
-                for method in self.dp_methods:
-                    accs = all_results.get(dataset, {}).get(method, [])
+                for kind in self.noise_kinds:
+                    accs = all_results.get(dataset, {}).get(kind, [])
                     if not accs:
                         continue
-                    init_acc = accs[0]
-                    final_acc = accs[-1]
-                    peak_acc = max(accs)
-                    conv = self.calculate_convergence_epoch(accs)
-                    ability = all_abilities.get(dataset, {}).get(method, 0.0)
-                    risk = max(0.0, min(1.0, 1.0 - ability))
-                    t = all_times.get(dataset, {}).get(method, 0.0)
-                    improvement = final_acc - init_acc
-                    f.write(f"{dataset},{method},{init_acc:.2f}%,{final_acc:.2f}%,{improvement:+.2f}%,{t:.1f}s,{conv:.0f},{ability:.4f},{risk:.4f},{peak_acc:.2f}%\n")
+                    init_acc, final_acc = accs[0], accs[-1]
+                    ability = all_abilities.get(dataset, {}).get(kind, 0.0)
+                    f.write(
+                        f"{dataset},{kind},{init_acc:.2f}%,{final_acc:.2f}%,"
+                        f"{final_acc - init_acc:+.2f}%,"
+                        f"{all_times.get(dataset, {}).get(kind, 0.0):.1f}s,"
+                        f"{self.calculate_convergence_epoch(accs):.0f},"
+                        f"{ability:.4f},{max(0.0, min(1.0, 1.0 - ability)):.4f},"
+                        f"{max(accs):.2f}%\n"
+                    )
 
         print(f"Saved JSON: {json_file}")
         print(f"Saved CSV : {csv_file}")
 
     def run_all_experiments(self):
         print("=" * 80)
-        print("DP comparison experiments")
+        print("Noise-mechanism comparison experiments")
         print("=" * 80)
-        print(f"Datasets: {self.datasets}")
-        print(f"Methods : {self.dp_methods}")
-        print(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Datasets   : {self.datasets}")
+        print(f"Noise kinds: {self.noise_kinds}")
+        if any(k.startswith("mix_") for k in self.noise_kinds):
+            print(f"Mix alpha  : {self.mix_alpha}")
+        print(f"Start      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         results = self.run_comparison_experiments()
 
@@ -478,33 +310,34 @@ class ExperimentRunner:
         for dataset in self.datasets:
             if dataset in results:
                 print(f"\n{dataset}:")
-                for method in self.dp_methods:
-                    accs = results[dataset].get(method, [])
+                for kind in self.noise_kinds:
+                    accs = results[dataset].get(kind, [])
                     if accs:
-                        print(f"  {method.upper():9s} {accs[0]:.2f}% -> {accs[-1]:.2f}%")
+                        print(f"  {kind:20s} {accs[0]:.2f}% -> {accs[-1]:.2f}%")
                     else:
-                        print(f"  {method.upper():9s} no parsed accuracy")
+                        print(f"  {kind:20s} no parsed accuracy")
         print("=" * 80)
         return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run DP method comparison experiments")
+    parser = argparse.ArgumentParser(description="Run noise-mechanism comparison experiments")
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--datasets", nargs="+", default=["CIFAR10", "MNIST", "SVHN"])
-    parser.add_argument("--dp_methods", nargs="+", default=["none", "gaussian", "dfl"])
-    parser.add_argument("--chaotic_factor", type=float, default=None,
-                        help="Override DFL chaotic_factor (alpha sweep). Same naming, distinguished by timestamp.")
+    parser.add_argument("--noise_kinds", nargs="+", default=["gaussian", "dfl_gaussian"],
+                        choices=VALID_NOISE_KINDS,
+                        help="Which noise mechanisms to compare in this session")
+    parser.add_argument("--mix_alpha", type=float, default=0.5,
+                        help="Mix ratio α ∈ [0,1] for mix_* noise kinds (default: 0.5)")
     args = parser.parse_args()
 
     runner = ExperimentRunner()
     runner.datasets = args.datasets
-    runner.dp_methods = args.dp_methods
-    runner.chaotic_factor_override = args.chaotic_factor
+    runner.noise_kinds = args.noise_kinds
+    runner.mix_alpha = float(args.mix_alpha)
     if args.epochs is not None:
         for d in runner.datasets:
             runner.global_epochs[d] = args.epochs
-
     runner.run_all_experiments()
 
 

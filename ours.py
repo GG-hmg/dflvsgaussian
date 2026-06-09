@@ -1,11 +1,6 @@
 import os
 import sys
 
-if 'DP_METHOD' in os.environ:
-    dp_method_env = os.environ['DP_METHOD']
-    if '--dp_method' not in sys.argv:
-        sys.argv.extend(['--dp_method', dp_method_env])
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -13,7 +8,13 @@ from torch.utils.data import DataLoader
 from options import parse_args
 from data import get_mnist_datasets, get_clients_datasets, get_CIFAR10, get_SVHN, get_FashionMNIST
 from net import cifar10Net, SVHNNet, fashionmnistNet, mnistNet
-from utils import adaptive_privacy_budget, generate_dfl_gaussian_noise, generate_random_gaussian_noise_like
+from utils import (
+    adaptive_privacy_budget,
+    generate_dfl_gaussian_noise,
+    generate_dfl_uniform_noise,
+    generate_random_gaussian_noise,
+    generate_random_gaussian_noise_like,
+)
 from tqdm.auto import trange
 from gradient_inversion_risk_simulator import (
     GradientInversionRiskConfig,
@@ -37,7 +38,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-
 args = parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
 
@@ -56,9 +56,6 @@ def set_global_seed(seed: int) -> None:
 
 set_global_seed(int(args.seed))
 
-if not hasattr(args, 'dp_method'):
-    args.dp_method = 'dfl'
-
 num_clients = args.num_clients
 local_epoch = args.local_epoch
 global_epoch = args.global_epoch
@@ -70,60 +67,24 @@ dataset = args.dataset
 user_sample_rate = args.user_sample_rate
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_losses = {'none': [], 'gaussian': [], 'dfl': []}
-train_accuracies = {'none': [], 'gaussian': [], 'dfl': []}
+train_losses = {}      # keyed by noise_kind, filled at end of run
+train_accuracies = {}
 
-print(f"DP方法: {args.dp_method}")
+print(f"Noise kind: {args.noise_kind}" + (f" (mix_alpha={args.mix_alpha})" if args.noise_kind.startswith("mix_") else ""))
 print(f"Random seed: {args.seed}")
 print(f"数据集: {dataset}, 学习率: {args.lr}, 隐私预算ε: {target_epsilon}, 裁剪边界: {clipping_bound}")
 
-def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
+
+def adaptive_noise_scale(client_epsilon, delta, clipping_bound):
     """
-    DFL chaotic Gaussian noise generation.
+    Gaussian-mechanism noise scale: sigma = C * sqrt(2 ln(1.25/delta)) / epsilon.
 
-    Output is already standard-normal (mean 0, var 1) because the underlying
-    DFL pipeline ends in an inverse-CDF Gaussian sampler. No extra std
-    normalization is applied — re-normalizing would inject sample-std jitter
-    and shift variance off 1.0.
-
-    The seed → x0 mapping is the only hash needed; _get_pure_dfl_sequences
-    consumes x0 directly without a second avalanche step.
+    Note: only `noise_kind=gaussian` actually has the formal (ε, δ)-DP
+    guarantee that this sigma corresponds to. Non-Gaussian / chaotic noise
+    kinds reuse the same sigma magnitude for fair comparison but carry no
+    formal DP claim.
     """
-    a = getattr(args, 'dfl_a', 4.0)
-    b = getattr(args, 'dfl_b', 501.0)
-    k = getattr(args, 'dfl_k', 7)
-    decimation = getattr(args, 'dfl_decimation', 12)
-    burn_in = getattr(args, 'dfl_burn_in', 2048)
-
-    # Single hash: deterministic per (client, epoch, batch) → x0 ∈ [0, 1)
-    seed_value = client_id * 1000000 + epoch * 10000 + batch_idx
-    x0 = ((seed_value * 2654435761) & 0xFFFFFFFF) / 4294967296.0
-
-    return generate_dfl_gaussian_noise(
-        shape,
-        a=a,
-        b=b,
-        k=k,
-        x0=x0,
-        decimation=decimation,
-        burn_in=burn_in,
-        device=device,
-    )
-
-
-def adaptive_noise_scale(client_epsilon, delta, clipping_bound, dp_method, current_epoch, total_epochs):
-    """
-    Gaussian-mechanism noise scale: sigma = C * sqrt(2 ln(1.25/delta)) / epsilon
-
-    One-shot Gaussian mechanism (Dwork & Roth, Theorem A.1). Does NOT
-    compose over T rounds — true cumulative epsilon across training is
-    larger; use an RDP/moment accountant if you need a formal multi-round
-    DP statement.
-
-    No sigma_factor / decay_factor / sigma_cap — those previously diluted
-    noise ~100x and broke the DP guarantee.
-    """
-    if client_epsilon <= 0 or dp_method == 'none':
+    if client_epsilon <= 0:
         return 0.0
     return clipping_bound * np.sqrt(2.0 * np.log(1.25 / delta)) / client_epsilon
 
@@ -142,36 +103,73 @@ def _clip_gradients_inplace(model, clipping_bound):
     return float(grad_norm.item())
 
 
-def _add_dp_noise_inplace(model, sigma, dp_method, chaotic_factor,
-                          client_id, current_epoch, batch_seed):
-    """
-    Inject DP noise into param.grad in-place.
+def _x0_from_seed(client_id, current_epoch, batch_seed, salt=0):
+    """Map (client_id, epoch, batch_seed) → x0 ∈ [0, 1) via Knuth multiplicative hash.
 
-    For dp_method='gaussian': iid N(0, sigma^2) per parameter.
-    For dp_method='dfl': variance-preserving mix
-        flat = sqrt(alpha) * DFL + sqrt(1-alpha) * Gaussian, scaled by sigma.
+    `salt` lets us produce two independent x0's from the same triple (used for
+    the second DFL source in `mix_dgauss_dchaos`).
     """
+    seed_val = client_id * 1000000 + current_epoch * 10000 + batch_seed + salt * 7919
+    mult = 2654435761 if salt == 0 else 2246822519  # both Knuth/Marsaglia magic constants
+    return ((seed_val * mult) & 0xFFFFFFFF) / 4294967296.0
+
+
+def _build_unit_noise(numel, noise_kind, mix_alpha,
+                      client_id, current_epoch, batch_seed):
+    """
+    Build a unit-variance flat noise tensor of length `numel`.
+
+    Dispatches on `noise_kind` (see options.py for the 5 choices). The output
+    is mean ≈ 0, var ≈ 1; the *shape* of the marginal distribution and the
+    sample correlations depend on the kind:
+        gaussian          → iid N(0,1)
+        dfl_uniform       → uniform-shape on [-√3, √3), chaotic correlation
+        dfl_gaussian      → N(0,1)-shape, chaotic correlation
+        mix_dgauss_gauss  → √α·dfl_gaussian + √(1-α)·gaussian   (variance-preserving)
+        mix_dgauss_dchaos → √α·dfl_gaussian + √(1-α)·dfl_uniform (independent x0)
+    """
+    shape = torch.Size([numel])
+
+    if noise_kind == 'gaussian':
+        return generate_random_gaussian_noise(shape, device=device)
+
+    dfl_kw = dict(
+        a=float(args.dfl_a), b=float(args.dfl_b), k=int(args.dfl_k),
+        burn_in=int(args.dfl_burn_in), decimation=int(args.dfl_decimation),
+        device=device,
+    )
+    x0_a = _x0_from_seed(client_id, current_epoch, batch_seed, salt=0)
+
+    if noise_kind == 'dfl_uniform':
+        return generate_dfl_uniform_noise(shape, x0=x0_a, **dfl_kw)
+
+    if noise_kind == 'dfl_gaussian':
+        return generate_dfl_gaussian_noise(shape, x0=x0_a, **dfl_kw)
+
+    alpha = max(0.0, min(1.0, float(mix_alpha)))
+    a_term = generate_dfl_gaussian_noise(shape, x0=x0_a, **dfl_kw)
+
+    if noise_kind == 'mix_dgauss_gauss':
+        b_term = generate_random_gaussian_noise(shape, device=device)
+    elif noise_kind == 'mix_dgauss_dchaos':
+        x0_b = _x0_from_seed(client_id, current_epoch, batch_seed, salt=1)
+        b_term = generate_dfl_uniform_noise(shape, x0=x0_b, **dfl_kw)
+    else:
+        raise ValueError(f"Unknown noise_kind: {noise_kind!r}")
+
+    return math.sqrt(alpha) * a_term + math.sqrt(1.0 - alpha) * b_term
+
+
+def _add_dp_noise_inplace(model, sigma, noise_kind, mix_alpha,
+                          client_id, current_epoch, batch_seed):
+    """Inject `noise_kind`-shaped unit-variance noise into param.grad in-place, scaled by sigma."""
     grad_params = [p for p in model.parameters() if p.grad is not None]
     if not grad_params or sigma <= 0:
         return
 
-    if dp_method == 'gaussian':
-        for param in grad_params:
-            param.grad.data.add_(generate_random_gaussian_noise_like(param.grad) * sigma)
-        return
-
-    # dfl path: build one flat unit-variance noise vector then redistribute.
     total_numel = sum(p.grad.numel() for p in grad_params)
-    flat_chaotic = generate_chaotic_noise_v2(
-        torch.Size([total_numel]), client_id, current_epoch, batch_seed, dp_method,
-    ).to(device)
-
-    alpha = max(0.0, min(1.0, float(chaotic_factor)))
-    if alpha < 1.0:
-        flat_gauss = generate_random_gaussian_noise_like(flat_chaotic)
-        flat_unit = math.sqrt(alpha) * flat_chaotic + math.sqrt(1.0 - alpha) * flat_gauss
-    else:
-        flat_unit = flat_chaotic
+    flat_unit = _build_unit_noise(total_numel, noise_kind, mix_alpha,
+                                  client_id, current_epoch, batch_seed)
     flat_noise = flat_unit * sigma
 
     offset = 0
@@ -203,22 +201,20 @@ def _snapshot_grads(model):
 
 
 def _run_gir_evaluation(model, data, labels, real_noisy_grads,
-                        sigma, dp_method, chaotic_factor,
-                        risk_cfg, current_epoch, client_id,
+                        sigma, risk_cfg, current_epoch, client_id,
                         local_epoch_idx, batch_idx):
     """
     Evaluate gradient-inversion defense quality using the ACTUAL clipped+noised
     gradients (real_noisy_grads) that training transmitted, not a freshly
-    resampled noise stream inside the simulator.
+    resampled noise stream inside the simulator. The simulator is now
+    noise-kind agnostic — `real_noisy_grads` carries everything the attacker
+    sees, so DefenseSimulationConfig only needs sigma / clipping / sparsity.
     """
     defense_cfg = DefenseSimulationConfig(
-        dp_method=str(dp_method),
         sigma=float(sigma),
         clipping_bound=float(clipping_bound),
         apply_clipping=bool(not args.no_clip),
-        apply_noise=bool(dp_method != 'none' and (not args.no_noise) and sigma > 0),
-        use_chaotic=bool(dp_method == 'dfl' and args.use_chaotic),
-        chaotic_factor=float(chaotic_factor if dp_method == 'dfl' else 0.0),
+        apply_noise=bool((not args.no_noise) and sigma > 0),
         sparsity_ratio=float(args.sparsity_ratio),
         seed_context=int(
             args.seed
@@ -227,10 +223,6 @@ def _run_gir_evaluation(model, data, labels, real_noisy_grads,
             + local_epoch_idx * 100
             + batch_idx
         ),
-        dfl_a=float(getattr(args, 'dfl_a', 4.0)),
-        dfl_b=float(getattr(args, 'dfl_b', 501.0)),
-        dfl_k=int(getattr(args, 'dfl_k', 7)),
-        dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
     )
     risk_result = simulate_gradient_inversion_risk(
         model=model,
@@ -250,15 +242,16 @@ def _run_gir_evaluation(model, data, labels, real_noisy_grads,
 
 def local_update_with_dp(model, dataloader, global_model, client_data_size,
                          total_data_size, client_epsilon,
-                         current_epoch=0, dp_method=None, client_id=0):
+                         current_epoch=0, client_id=0):
     """
     Client-side training with DP. Each batch:
         forward → loss → backward → (clip → noise) → snapshot → GIR eval
         → sparsity → optimizer.step
     Returns (model_update, avg_defense_score, avg_loss).
+    Noise kind is taken from `args.noise_kind`; mix ratio from `args.mix_alpha`.
     """
-    if dp_method is None:
-        dp_method = args.dp_method
+    noise_kind = args.noise_kind
+    mix_alpha = float(args.mix_alpha)
 
     model = model.to(device)
     global_model = global_model.to(device)
@@ -277,8 +270,6 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
         l2_weight=float(getattr(args, 'gir_l2_weight', 1e-4)),
         dataset=str(dataset),
     )
-
-    chaotic_factor = args.chaotic_factor if dp_method == 'dfl' else 0.0
 
     try:
         dataloader_len = len(dataloader)
@@ -307,16 +298,13 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
 
             sigma = 0.0
             with torch.no_grad():
-                if dp_method != 'none':
-                    sigma = adaptive_noise_scale(client_epsilon, target_delta,
-                                                 clipping_bound, dp_method,
-                                                 current_epoch, global_epoch)
-                    if not args.no_clip:
-                        _clip_gradients_inplace(model, clipping_bound)
-                    if not args.no_noise:
-                        batch_seed = batch_idx + local_epoch_idx * max(1, dataloader_len)
-                        _add_dp_noise_inplace(model, sigma, dp_method, chaotic_factor,
-                                              client_id, current_epoch, batch_seed)
+                sigma = adaptive_noise_scale(client_epsilon, target_delta, clipping_bound)
+                if not args.no_clip:
+                    _clip_gradients_inplace(model, clipping_bound)
+                if not args.no_noise:
+                    batch_seed = batch_idx + local_epoch_idx * max(1, dataloader_len)
+                    _add_dp_noise_inplace(model, sigma, noise_kind, mix_alpha,
+                                          client_id, current_epoch, batch_seed)
 
             # Snapshot the clipped+noised gradients BEFORE sparsity / optimizer step.
             # This is what GIR should attack — the actual gradient the attacker observes.
@@ -328,22 +316,19 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
                 real_noisy_grads = _snapshot_grads(model)
                 score = _run_gir_evaluation(
                     model, data, labels, real_noisy_grads,
-                    sigma, dp_method, chaotic_factor, risk_cfg,
+                    sigma, risk_cfg,
                     current_epoch, client_id, local_epoch_idx, batch_idx,
                 )
                 risk_scores_per_batch.append(score)
                 risk_eval_count += 1
 
-            _apply_sparsity_inplace(model, args.sparsity_ratio if dp_method != 'none' else 0.0)
+            _apply_sparsity_inplace(model, args.sparsity_ratio)
             optimizer.step()
 
         if batch_losses:
             epoch_losses.append(np.mean(batch_losses))
 
-    if risk_scores_per_batch:
-        avg_risk = float(np.mean(risk_scores_per_batch))
-    else:
-        avg_risk = 0.0 if dp_method == 'none' else 0.5
+    avg_risk = float(np.mean(risk_scores_per_batch)) if risk_scores_per_batch else 0.5
 
     with torch.no_grad():
         final_params = [param.clone().detach() for param in model.parameters()]
@@ -479,7 +464,7 @@ def main():
 
     start_time = datetime.datetime.now()
 
-    for epoch in trange(global_epoch, desc=f"全局轮次 {args.dp_method.upper()}"):
+    for epoch in trange(global_epoch, desc=f"全局轮次 {args.noise_kind}"):
         num_total_clients = len(clients_train_loaders)
         client_num_per_round = max(1, min(current_num_clients, int(user_sample_rate * num_total_clients)))
         available_indices = list(range(num_total_clients))
@@ -508,7 +493,6 @@ def main():
                 total_data_size,
                 client_epsilon,
                 current_epoch=epoch,
-                dp_method=args.dp_method,
                 client_id=idx
             )
 
@@ -571,11 +555,11 @@ def main():
     end_time = datetime.datetime.now()
     training_time = (end_time - start_time).total_seconds()
 
-    train_losses[args.dp_method] = epoch_losses
-    train_accuracies[args.dp_method] = mean_acc_s
+    train_losses[args.noise_kind] = epoch_losses
+    train_accuracies[args.noise_kind] = mean_acc_s
 
     print("\n" + "=" * 80)
-    print(f"{args.dp_method.upper()}差分隐私联邦学习 - 实验结果汇总")
+    print(f"{args.noise_kind} 噪声机制 - 实验结果汇总")
     print("=" * 80)
     print(f"数据集: {dataset}")
     print(f"全局训练轮次: {global_epoch}")

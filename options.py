@@ -30,29 +30,30 @@ def parse_args():
     parser.add_argument('--sparsity_ratio', type=float, default=0.0,
                         help="Gradient sparsity ratio (default: 0.0)")
 
-    # 混沌差分隐私新增参数
-    parser.add_argument('--use_chaotic', action='store_true',
-                        help="Use chaotic differential privacy")
+    # Noise kind (5-way taxonomy — replaces old dp_method/use_chaotic/chaotic_factor)
+    # gaussian          : true iid N(0,1) noise via torch.rand → inverse-CDF
+    # dfl_uniform       : raw chaotic, (u-0.5)*sqrt(12), bounded [-sqrt(3), sqrt(3))
+    # dfl_gaussian      : DFL sequence → inverse-CDF → N(0,1)
+    # mix_dgauss_gauss  : sqrt(α)·dfl_gaussian + sqrt(1-α)·gaussian
+    # mix_dgauss_dchaos : sqrt(α)·dfl_gaussian + sqrt(1-α)·dfl_uniform
+    parser.add_argument('--noise_kind', type=str, default='gaussian',
+                        choices=['gaussian', 'dfl_uniform', 'dfl_gaussian',
+                                 'mix_dgauss_gauss', 'mix_dgauss_dchaos'],
+                        help="Noise mechanism (default: gaussian = the formal-DP baseline)")
+    parser.add_argument('--mix_alpha', type=float, default=0.5,
+                        help="Mix ratio α ∈ [0,1] for mix_* noise kinds (default: 0.5)")
 
-    parser.add_argument('--chaotic_factor', type=float, default=0.3,
-                        help="Chaotic noise strength factor (default: 0.3)")
-
-    # DFL (Discrete Fractional Logistic) 参数
+    # DFL (Discrete Fractional Logistic) parameters — used by every non-gaussian noise_kind
     parser.add_argument('--dfl_a', type=float, default=4.0,
                 help='DFL control parameter a (default: 4.0)')
     parser.add_argument('--dfl_b', type=float, default=501.0,
                 help='DFL feedback parameter b (default: 501.0)')
     parser.add_argument('--dfl_k', type=int, default=3,
-                help='DFL delay steps k (default: 7)')
+                help='DFL delay steps k (default: 3)')
     parser.add_argument('--dfl_burn_in', type=int, default=2048,
                         help="Burn-in steps before using DFL samples (default: 2048)")
     parser.add_argument('--dfl_decimation', type=int, default=11,
                         help="DFL gap/decimation factor to break correlation (default: 11)")
-
-    # DP方法选择
-    parser.add_argument('--dp_method', type=str, default='dfl',
-                        choices=['none', 'gaussian', 'dfl'],
-                        help="Differential privacy method: none, gaussian, dfl")
 
     # Gradient inversion risk simulator (paper-style attack/reconstruction evaluation)
     parser.add_argument('--gir_attack_steps', type=int, default=30,

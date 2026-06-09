@@ -286,29 +286,33 @@ def _get_pure_dfl_sequences(a, b, k, seed_val, needed_length):
     return seq_tensor[start_idx : start_idx + needed_length]
 
 
-def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
-                                burn_in=2048, decimation=12, device=None):
-    total_elements = int(shape.numel()) if isinstance(shape, torch.Size) else int(torch.Size(shape).numel())
-    if total_elements <= 0: return torch.zeros(shape if isinstance(shape, torch.Size) else torch.Size(shape))
+def _extract_dfl_uniform_sequence(total_elements, a, b, k, x0, burn_in, decimation):
+    """
+    Run the DFL chaotic map and produce `total_elements` samples in [0, 1)
+    after burn-in + decimation + degeneracy guard + adjacent-pair coupling.
 
-    # 5x covers Ziggurat's 4x budget + ~2% retries, no waste
-    total_uniform = 5 * total_elements
-    total_uniform += (total_uniform % 2)  # force even for reshape(-1, 2)
+    Shared preprocessing for both dfl_uniform and dfl_gaussian — the two
+    noise kinds differ only in the final step (linear rescale vs inverse-CDF).
+    """
+    if total_elements <= 0:
+        return torch.zeros(0, dtype=torch.float32)
+
+    # Even count for reshape(-1, 2) used by the pair-coupling step.
+    total_uniform = total_elements + (total_elements % 2)
 
     thin_factor = max(1, int(decimation))
     burn_in = max(0, int(burn_in))
-
     required_length = burn_in + (total_uniform * thin_factor) + 64
 
     seq = _get_pure_dfl_sequences(a, b, k, x0, required_length)
-
     u = seq[burn_in:]
     u = u[::thin_factor]
-    # .clone() is CRITICAL — severs the view from _dfl_long_cache to prevent
-    # in-place corruption by the pairs[:, 1] assignment below
+    # .clone() severs the view from _dfl_long_cache — the pair-coupling
+    # assignment below must not mutate the cache.
     u = u[:total_uniform].clone()
 
-    if u.numel() == 0: raise ValueError("DFL sequence empty")
+    if u.numel() == 0:
+        raise ValueError("DFL sequence empty")
 
     # Degeneracy guard
     check = u[:min(u.numel(), 4096)]
@@ -318,10 +322,51 @@ def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
     # Adjacent-pair coupling for anti-pattern defense
     pairs = u.reshape(-1, 2)
     pairs[:, 1] = torch.remainder(pairs[:, 1] + 0.5 * pairs[:, 0], 1.0)
-    u_final = torch.clamp(pairs.reshape(-1), min=1e-10, max=1 - 1e-10)
+    u_final = torch.clamp(pairs.reshape(-1)[:total_elements], min=1e-10, max=1 - 1e-10)
+    return u_final
 
+
+def generate_dfl_gaussian_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
+                                burn_in=2048, decimation=12, device=None):
+    """
+    Standard-normal noise sampled via inverse-CDF, with chaotic DFL random source.
+
+    Marginal distribution = N(0, 1). Sample correlations follow the DFL map.
+    Used by noise_kind in {dfl_gaussian, mix_dgauss_gauss, mix_dgauss_dchaos}.
+    """
+    shape = shape if isinstance(shape, torch.Size) else torch.Size(shape)
+    total_elements = int(shape.numel())
+    if total_elements <= 0:
+        return torch.zeros(shape)
+
+    # 5x oversampling so inverse-CDF has plenty of input even after pair coupling drop
+    u_final = _extract_dfl_uniform_sequence(5 * total_elements, a, b, k, x0, burn_in, decimation)
     if device is not None:
         u_final = u_final.to(device, non_blocking=True)
+    return generate_inverse_cdf_gaussian_noise(shape, u_final)
 
-    noise = generate_inverse_cdf_gaussian_noise(shape, u_final)
+
+def generate_dfl_uniform_noise(shape, a=4.0, b=501.0, k=7, x0=0.5,
+                               burn_in=2048, decimation=12, device=None):
+    """
+    Mean-0 std-1 noise direct from the DFL chaotic map — NOT passed through
+    a Gaussian sampler.
+
+    Pipeline: raw DFL ∈ [0,1) → (u-0.5) * sqrt(12). Result has:
+        - bounded support [-sqrt(3), +sqrt(3)) ≈ [-1.73, 1.73]
+        - mean 0, variance 1 (exactly, by linearity)
+        - uniform-shape marginal distribution
+        - chaotic sample-to-sample correlation
+    Used by noise_kind in {dfl_uniform, mix_dgauss_dchaos}.
+    """
+    shape = shape if isinstance(shape, torch.Size) else torch.Size(shape)
+    total_elements = int(shape.numel())
+    if total_elements <= 0:
+        return torch.zeros(shape)
+
+    u_final = _extract_dfl_uniform_sequence(total_elements, a, b, k, x0, burn_in, decimation)
+    noise = (u_final - 0.5) * math.sqrt(12.0)
+    noise = noise.reshape(shape).to(dtype=torch.float32)
+    if device is not None:
+        noise = noise.to(device, non_blocking=True)
     return noise

@@ -1,14 +1,13 @@
 import copy
 import gc
 import math
-import random
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
 import torch
 import torch.nn.functional as F
 
-from utils import generate_dfl_gaussian_noise, generate_random_gaussian_noise_like
+from utils import generate_random_gaussian_noise_like
 
 
 @dataclass
@@ -28,20 +27,20 @@ class GradientInversionRiskConfig:
 
 @dataclass
 class DefenseSimulationConfig:
-    dp_method: str = "none"
+    """
+    Defense parameters supplied to the simulator. Noise-kind info is NOT
+    needed: when `real_noisy_grads` is provided to `simulate_gradient_inversion_risk`,
+    the attacker uses those directly and the only thing left to (re)apply is
+    optional sparsity. The `sigma`/`clipping_bound` fields are kept so the
+    fallback path (no real_noisy_grads) can still synthesize a defense.
+    """
     sigma: float = 0.0
     clipping_bound: float = 1.0
     apply_clipping: bool = False
     apply_noise: bool = False
-    use_chaotic: bool = False
-    chaotic_factor: float = 0.0
     sparsity_ratio: float = 0.0
     seed_context: int = 0
-    dfl_a: float = 4.0
-    dfl_b: float = 501.0
-    dfl_k: int = 7
-    dfl_burn_in: int = 2048
-    
+
 
 _DATASET_STATS = {
     "MNIST": ((0.1307,), (0.3081,)),
@@ -115,59 +114,23 @@ def _apply_sparsity(grads: List[torch.Tensor], sparsity_ratio: float) -> List[to
     return sparse_grads
 
 
-def _generate_chaotic_flat_noise(numel: int, cfg: DefenseSimulationConfig, device: torch.device) -> torch.Tensor:
-    if numel <= 0:
-        return torch.zeros(0, device=device)
-    rng = random.Random(int(cfg.seed_context))
-    x0 = rng.random()
-    flat_chaotic = generate_dfl_gaussian_noise(
-        torch.Size([numel]),
-        a=float(cfg.dfl_a),
-        b=float(cfg.dfl_b),
-        k=int(cfg.dfl_k),
-        x0=float(x0),
-        burn_in=int(cfg.dfl_burn_in),
-        
-        
-    ).to(device)
-    std = torch.std(flat_chaotic)
-    if std > 0:
-        flat_chaotic = flat_chaotic / std
-    chaotic_weight = max(0.0, min(1.0, float(cfg.chaotic_factor)))
-    if chaotic_weight < 1.0:
-        flat_gaussian = generate_random_gaussian_noise_like(flat_chaotic)
-        flat_unit = (
-            math.sqrt(chaotic_weight) * flat_chaotic
-            + math.sqrt(1.0 - chaotic_weight) * flat_gaussian
-        )
-    else:
-        flat_unit = flat_chaotic
-    return flat_unit
-
-
 def _apply_defense_to_gradients(grads: List[torch.Tensor], cfg: DefenseSimulationConfig) -> List[torch.Tensor]:
+    """Fallback defense synthesis (clip + Gaussian noise + sparsity) for callers
+    that do NOT supply real training noise via `real_noisy_grads`. The
+    simulator no longer mimics specific noise mechanisms — it just applies a
+    generic Gaussian noise at the same sigma, which is enough for unit tests.
+    The real (production) path passes `real_noisy_grads` and skips this entirely.
+    """
     defended = [g.detach().clone() for g in grads]
 
     if cfg.apply_clipping:
         defended = _clip_gradients(defended, cfg.clipping_bound)
 
-    if cfg.apply_noise and cfg.sigma > 0 and cfg.dp_method != "none":
-        if cfg.dp_method == "gaussian" or not cfg.use_chaotic:
-            defended = [
-                g + generate_random_gaussian_noise_like(g) * cfg.sigma
-                for g in defended
-            ]
-        else:
-            total_numel = sum(g.numel() for g in defended)
-            flat_noise = _generate_chaotic_flat_noise(total_numel, cfg, defended[0].device) * cfg.sigma
-            offset = 0
-            noisy = []
-            for grad in defended:
-                numel = grad.numel()
-                grad_noise = flat_noise[offset:offset + numel].view_as(grad)
-                noisy.append(grad + grad_noise)
-                offset += numel
-            defended = noisy
+    if cfg.apply_noise and cfg.sigma > 0:
+        defended = [
+            g + generate_random_gaussian_noise_like(g) * cfg.sigma
+            for g in defended
+        ]
 
     if cfg.sparsity_ratio > 0:
         defended = _apply_sparsity(defended, cfg.sparsity_ratio)

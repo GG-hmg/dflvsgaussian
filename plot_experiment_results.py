@@ -1,6 +1,17 @@
 """
-实验结果对比绘图脚本
-从experiment_results目录读取CSV文件，绘制准确率和抗反演能力对比图
+Plot one noise_kind (treatment) vs gaussian (baseline) for a given dataset.
+
+Reads files written by run_experiments.py:
+    {noise_kind}_{dataset}_{timestamp}.log    real-time log
+    {noise_kind}_{dataset}_{timestamp}.txt    final summary
+
+Usage:
+    python plot_experiment_results.py --dataset CIFAR10
+        Auto-find latest session; plot the first non-gaussian noise_kind vs gaussian.
+    python plot_experiment_results.py --dataset CIFAR10 --noise_kind dfl_gaussian
+        Pick a specific treatment noise_kind.
+    python plot_experiment_results.py --dataset CIFAR10 --timestamp 20260609_120000
+        Plot a specific historical session.
 """
 
 import os
@@ -8,275 +19,246 @@ import re
 import glob
 import argparse
 from datetime import datetime
-from scipy.ndimage import gaussian_filter1d
 
-import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def parse_output_file(output_path):
-    """从output文件解析训练过程数据"""
-    epochs = []
-    accuracies = []
-    anti_inversion_abilities = []
+VALID_NOISE_KINDS = [
+    "gaussian", "dfl_uniform", "dfl_gaussian",
+    "mix_dgauss_gauss", "mix_dgauss_dchaos",
+]
+TREATMENT_KINDS = [k for k in VALID_NOISE_KINDS if k != "gaussian"]
 
+
+def parse_output_file(output_path):
+    """Parse accuracy + anti-inversion history from a summary .txt file."""
     if not os.path.exists(output_path):
-        return epochs, accuracies, anti_inversion_abilities
+        return [], [], []
 
     with open(output_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
 
-        # 解析准确率历程
-        acc_pattern = r"平均准确率历程:\s*\[([^\]]+)\]"
-        acc_match = re.search(acc_pattern, content)
-        if acc_match:
-            acc_str = acc_match.group(1).replace('%', '').replace("'", "")
-            accuracies = [float(x.strip()) for x in acc_str.split(',') if x.strip()]
-            epochs = list(range(1, len(accuracies) + 1))
+    accs = []
+    m = re.search(r"平均准确率历程:\s*\[([^\]]+)\]", content)
+    if m:
+        s = m.group(1).replace('%', '').replace("'", "")
+        accs = [float(x.strip()) for x in s.split(',') if x.strip()]
 
-        # 解析抗梯度反演能力历程
-        anti_pattern = r"抗梯度反演能力历程:\s*\[([^\]]+)\]"
-        anti_match = re.search(anti_pattern, content)
-        if anti_match:
-            anti_str = anti_match.group(1).replace('%', '').replace("'", "")
-            anti_inversion_abilities = [float(x.strip()) for x in anti_str.split(',') if x.strip()]
+    antis = []
+    m = re.search(r"抗梯度反演能力历程:\s*\[([^\]]+)\]", content)
+    if m:
+        s = m.group(1).replace('%', '').replace("'", "")
+        antis = [float(x.strip()) for x in s.split(',') if x.strip()]
 
-    return epochs, accuracies, anti_inversion_abilities
+    epochs = list(range(1, len(accs) + 1)) if accs else []
+    return epochs, accs, antis
 
 
 def parse_live_log(log_path):
-    """从live log文件解析训练过程数据"""
-    epochs = []
-    accuracies = []
-    anti_inversion_abilities = []
+    """Parse per-epoch metrics from a live log (fallback when .txt missing/empty)."""
+    if not os.path.exists(log_path):
+        return [], [], []
 
     with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
 
-        # 匹配轮次数据行
-        pattern = r'轮次\s+(\d+)\s+客户端准确率:\s+\[(.*?)\].*?抗梯度反演能力:\s+([\d.]+)'
-        matches = re.findall(pattern, content, re.DOTALL)
-
-        for match in matches:
-            epoch = int(match[0])
-            # 解析准确率列表
-            acc_str = match[1].replace('%', '').replace("'", "").replace(' ', '')
-            accs = [float(x) for x in acc_str.split(',')]
-            avg_acc = np.mean(accs)
-
-            anti_inv = float(match[2])
-
-            epochs.append(epoch)
-            accuracies.append(avg_acc)
-            anti_inversion_abilities.append(anti_inv)
-
-    return epochs, accuracies, anti_inversion_abilities
+    # 轮次 N 客户端准确率: ['44.13%', ...]
+    #         平均抗梯度反演能力: 0.4596
+    pattern = r'轮次\s+(\d+)\s+客户端准确率:\s+\[(.*?)\].*?抗梯度反演能力:\s+([\d.]+)'
+    matches = re.findall(pattern, content, re.DOTALL)
+    epochs, accs, antis = [], [], []
+    for ep_str, acc_list_str, anti_str in matches:
+        acc_str = acc_list_str.replace('%', '').replace("'", "").replace(' ', '')
+        vals = [float(x) for x in acc_str.split(',') if x]
+        if vals:
+            epochs.append(int(ep_str))
+            accs.append(float(np.mean(vals)))
+            antis.append(float(anti_str))
+    return epochs, accs, antis
 
 
 def read_experiment_output(output_path):
-    """从output文件读取最终结果"""
+    """Pull final metrics + key params from a summary .txt file for the info bar."""
     results = {}
+    if not os.path.exists(output_path):
+        return results
+
     with open(output_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
 
-        # 解析最终准确率
-        acc_match = re.search(r'最终准确率:\s*([\d.]+)%', content)
-        if acc_match:
-            results['final_accuracy'] = float(acc_match.group(1))
+    for key, pat in [
+        ('final_accuracy', r'最终准确率:\s*([\d.]+)%'),
+        ('anti_inversion', r'最终抗梯度反演能力:\s*([\d.]+)'),
+        ('training_time', r'总训练时间:\s*([\d.]+)秒'),
+    ]:
+        m = re.search(pat, content)
+        if m:
+            results[key] = float(m.group(1))
 
-        # 解析最终抗反演能力
-        anti_match = re.search(r'最终抗梯度反演能力:\s*([\d.]+)', content)
-        if anti_match:
-            results['anti_inversion'] = float(anti_match.group(1))
-
-        # 解析训练时间
-        time_match = re.search(r'总训练时间:\s*([\d.]+)秒', content)
-        if time_match:
-            results['training_time'] = float(time_match.group(1))
-
-        # 解析参数
-        sigma_match = re.search(r'sigma_factor[_-](?:gaussian|dfl)\s+([\d.]+)', content)
-        if sigma_match:
-            results['sigma'] = float(sigma_match.group(1))
-
-        chaotic_match = re.search(r'chaotic_factor[:\s]+([\d.]+)', content)
-        if chaotic_match:
-            results['chaotic_factor'] = float(chaotic_match.group(1))
-
-        a_match = re.search(r'dfl_a[:\s=]+([\d.]+)', content)
-        if a_match:
-            results['dfl_a'] = float(a_match.group(1))
-        b_match = re.search(r'dfl_b[:\s=]+([\d.]+)', content)
-        if b_match:
-            results['dfl_b'] = float(b_match.group(1))
-        k_match = re.search(r'dfl_k[:\s=]+([\d]+)', content)
-        if k_match:
-            results['dfl_k'] = int(k_match.group(1))
-        burn_in_match = re.search(r'dfl_burn_in[:\s=]+([\d]+)', content)
-        if burn_in_match:
-            results['dfl_burn_in'] = int(burn_in_match.group(1))
-
-        decimation_match = re.search(r'dfl_decimation[:\s=]+([\d.]+)', content)
-        if decimation_match:
-            results['dfl_decimation'] = int(decimation_match.group(1))
-        else:
-            # 从命令行参数中解析
-            cmd_decimation = re.search(r'--dfl_decimation\s+([\d.]+)', content)
-            if cmd_decimation:
-                results['dfl_decimation'] = int(cmd_decimation.group(1))
-
-        clip_match = re.search(r'裁剪边界[:\s]+([\d.]+)', content)
-        if clip_match:
-            results['clipping_bound'] = float(clip_match.group(1))
-
+    # CLI args echoed in the log header
+    for key, pat in [
+        ('clipping_bound', r'裁剪边界:\s*([\d.]+)'),
+        ('noise_kind', r'--noise_kind\s+(\S+)'),
+        ('mix_alpha', r'--mix_alpha\s+([\d.]+)'),
+        ('dfl_a', r'--dfl_a\s+([\d.]+)'),
+        ('dfl_b', r'--dfl_b\s+([\d.]+)'),
+        ('dfl_k', r'--dfl_k\s+(\d+)'),
+        ('dfl_burn_in', r'--dfl_burn_in\s+(\d+)'),
+        ('dfl_decimation', r'--dfl_decimation\s+(\d+)'),
+        ('target_epsilon', r'隐私预算ε:\s*([\d.]+)'),
+    ]:
+        m = re.search(pat, content)
+        if m:
+            try:
+                results[key] = float(m.group(1)) if '.' in m.group(1) else int(m.group(1))
+            except ValueError:
+                results[key] = m.group(1)
     return results
 
 
-def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output, save_path, params):
-    """绘制对比图"""
+def find_session_files(results_dir, dataset, treatment_kind, timestamp=None):
+    """
+    Return (timestamp, treatment_log, gaussian_log, treatment_txt, gaussian_txt).
 
-    # 优先从output文件解析数据（包含完整历程）
-    dfl_epochs, dfl_accs, dfl_anti = parse_output_file(dfl_output)
-    gauss_epochs, gauss_accs, gauss_anti = parse_output_file(gaussian_output)
+    If `timestamp` is None: auto-find the most recent session where both
+    `{treatment_kind}_{dataset}_*.log` and `gaussian_{dataset}_*.log` exist.
+    """
+    if timestamp is None:
+        pattern = os.path.join(results_dir, f'{treatment_kind}_{dataset}_*.log')
+        candidates = []
+        for path in glob.glob(pattern):
+            m = re.search(rf'{re.escape(treatment_kind)}_{re.escape(dataset)}_(\d{{8}}_\d{{6}})\.log$',
+                          os.path.basename(path))
+            if not m:
+                continue
+            ts = m.group(1)
+            if os.path.exists(os.path.join(results_dir, f'gaussian_{dataset}_{ts}.log')):
+                candidates.append(ts)
+        if not candidates:
+            return None, None, None, None, None
+        timestamp = max(candidates)
 
-    # 如果output文件解析失败，回退到live log
-    if not dfl_accs and os.path.exists(dfl_log):
-        dfl_epochs, dfl_accs, dfl_anti = parse_live_log(dfl_log)
-    if not gauss_accs and os.path.exists(gaussian_log):
-        gauss_epochs, gauss_accs, gauss_anti = parse_live_log(gaussian_log)
+    return (
+        timestamp,
+        os.path.join(results_dir, f'{treatment_kind}_{dataset}_{timestamp}.log'),
+        os.path.join(results_dir, f'gaussian_{dataset}_{timestamp}.log'),
+        os.path.join(results_dir, f'{treatment_kind}_{dataset}_{timestamp}.txt'),
+        os.path.join(results_dir, f'gaussian_{dataset}_{timestamp}.txt'),
+    )
 
-    # 读取最终结果
-    dfl_results = read_experiment_output(dfl_output) if os.path.exists(dfl_output) else {}
-    gauss_results = read_experiment_output(gaussian_output) if os.path.exists(gaussian_output) else {}
 
-    # 创建图表
+def autodetect_treatment_kind(results_dir, dataset, timestamp=None):
+    """Find any treatment noise_kind that has a matching gaussian baseline."""
+    for kind in TREATMENT_KINDS:
+        ts, t_log, g_log, _, _ = find_session_files(results_dir, dataset, kind, timestamp)
+        if ts is not None:
+            return kind, ts
+    return None, None
+
+
+def plot_comparison(dataset, treatment_kind, t_log, g_log, t_txt, g_txt, save_path, params):
+    t_epochs, t_accs, t_antis = parse_output_file(t_txt)
+    g_epochs, g_accs, g_antis = parse_output_file(g_txt)
+    if not t_accs:
+        t_epochs, t_accs, t_antis = parse_live_log(t_log)
+    if not g_accs:
+        g_epochs, g_accs, g_antis = parse_live_log(g_log)
+
+    t_results = read_experiment_output(t_txt)
+    g_results = read_experiment_output(g_txt)
+
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # 设置中文字体（如果可用）
     plt.rcParams['font.size'] = 10
 
-    # 图1: 准确率对比
-    ax1 = axes[0]
-    if dfl_epochs:
-        ax1.plot(dfl_epochs, dfl_accs, 'b-', label='DFL', linewidth=1, marker='o', markersize=2)
-    if gauss_epochs:
-        ax1.plot(gauss_epochs, gauss_accs, 'r-', label='Gaussian', linewidth=1, marker='s', markersize=2)
-
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Accuracy (%)')
-    ax1.set_title(f'{dataset} - Accuracy Comparison')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    all_accs = dfl_accs + gauss_accs
+    # ax1: accuracy
+    if t_epochs:
+        axes[0].plot(t_epochs, t_accs, 'b-', label=treatment_kind, linewidth=1, marker='o', markersize=2)
+    if g_epochs:
+        axes[0].plot(g_epochs, g_accs, 'r-', label='gaussian', linewidth=1, marker='s', markersize=2)
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Accuracy (%)')
+    axes[0].set_title(f'{dataset} - Accuracy Comparison')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    all_accs = t_accs + g_accs
     if all_accs:
-        acc_min = max(0, min(all_accs) - 5)
-        acc_max = min(100, max(all_accs) + 5)
-        ax1.set_ylim([acc_min, acc_max])
+        axes[0].set_ylim([max(0, min(all_accs) - 5), min(100, max(all_accs) + 5)])
 
-    # 图2: 抗反演能力对比
-    ax2 = axes[1]
-    if dfl_epochs:
-        ax2.plot(dfl_epochs, dfl_anti, 'b-', label='DFL', linewidth=1, marker='o', markersize=2)
-    if gauss_epochs:
-        ax2.plot(gauss_epochs, gauss_anti, 'r-', label='Gaussian', linewidth=1, marker='s', markersize=2)
+    # ax2: anti-inversion
+    if t_epochs:
+        axes[1].plot(t_epochs, t_antis, 'b-', label=treatment_kind, linewidth=1, marker='o', markersize=2)
+    if g_epochs:
+        axes[1].plot(g_epochs, g_antis, 'r-', label='gaussian', linewidth=1, marker='s', markersize=2)
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Anti-Inversion Ability')
+    axes[1].set_title(f'{dataset} - Privacy Protection')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_ylim([0, 1.2])
 
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Anti-Inversion Ability')
-    ax2.set_title(f'{dataset} - Privacy Protection')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    ax2.set_ylim([0, 1.2])
+    # Info bars: parameters at bottom, final results at top
+    mix_alpha = params.get('mix_alpha')
+    mix_part = f"mix_alpha={mix_alpha} | " if mix_alpha is not None and treatment_kind.startswith("mix_") else ""
+    param_text = (
+        f"noise_kind={treatment_kind} | {mix_part}"
+        f"ε={params.get('target_epsilon', 'N/A')} | "
+        f"clip={params.get('clipping_bound', 'N/A')} | "
+        f"a={params.get('dfl_a', 'N/A')} | b={params.get('dfl_b', 'N/A')} | "
+        f"k={params.get('dfl_k', 'N/A')} | "
+        f"burn_in={params.get('dfl_burn_in', 'N/A')} | gap={params.get('dfl_decimation', 'N/A')}"
+    )
+    result_text = (
+        f"{treatment_kind}: Acc={t_results.get('final_accuracy', 'N/A')}% | "
+        f"Anti-Inv={t_results.get('anti_inversion', 'N/A')}  |  "
+        f"gaussian: Acc={g_results.get('final_accuracy', 'N/A')}% | "
+        f"Anti-Inv={g_results.get('anti_inversion', 'N/A')}"
+    )
+    fig.text(0.5, 0.02, param_text, ha='center', fontsize=9,
+             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    fig.text(0.5, 0.94, result_text, ha='center', fontsize=9,
+             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
 
-    # 修改参数信息框
-    param_text = (f"sigma={params.get('sigma', 'N/A')} | "
-              f"clip={params.get('clipping_bound', 'N/A')} | "
-              f"a={params.get('dfl_a', 'N/A')} | "
-              f"b={params.get('dfl_b', 'N/A')} | "
-              f"k={params.get('dfl_k', 'N/A')} | "
-              f"burn_in={params.get('dfl_burn_in', 'N/A')} | "
-              f"gap={params.get('dfl_decimation', 'N/A')} | "
-              f"chaotic={params.get('chaotic_factor', 'N/A')}")
-
-    # 最终结果框
-    result_text = (f"DFL: Acc={dfl_results.get('final_accuracy', 'N/A')}% | Anti-Inv={dfl_results.get('anti_inversion', 'N/A')}  |  "
-                   f"Gaussian: Acc={gauss_results.get('final_accuracy', 'N/A')}% | Anti-Inv={gauss_results.get('anti_inversion', 'N/A')}")
-
-    # 将参数和结果放在整个 Figure 的底部
-    fig.text(0.5, 0.02, param_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    fig.text(0.5, 0.94, result_text, ha='center', fontsize=9, bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
-
-    # 调整布局，为底部的文本留出空间
     plt.tight_layout(rect=[0, 0.05, 1, 0.92])
-
-    # 保存
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     print(f"Figure saved to: {save_path}")
     plt.close()
 
 
-def find_latest_timestamp(results_dir, dataset):
-    """
-    Locate the most recent session timestamp for which both
-    dfl_{dataset}_{ts}.log and gaussian_{dataset}_{ts}.log exist.
-    Returns timestamp string or None.
-    """
-    pattern = os.path.join(results_dir, f'dfl_{dataset}_*.log')
-    dfl_logs = glob.glob(pattern)
-    timestamps = []
-    for path in dfl_logs:
-        m = re.search(rf'dfl_{re.escape(dataset)}_(\d{{8}}_\d{{6}})\.log$',
-                      os.path.basename(path))
-        if not m:
-            continue
-        ts = m.group(1)
-        gaussian = os.path.join(results_dir, f'gaussian_{dataset}_{ts}.log')
-        if os.path.exists(gaussian):
-            timestamps.append(ts)
-    return max(timestamps) if timestamps else None
-
-
 def main():
-    parser = argparse.ArgumentParser(description='Plot experiment results comparison')
-    parser.add_argument('--dataset', type=str, default='CIFAR10', help='Dataset name')
-    parser.add_argument('--results_dir', type=str, default='experiment_results', help='Results directory')
-    parser.add_argument('--output', type=str, default=None, help='Output figure path')
+    parser = argparse.ArgumentParser(description='Plot treatment noise_kind vs gaussian baseline')
+    parser.add_argument('--dataset', type=str, default='CIFAR10')
+    parser.add_argument('--noise_kind', type=str, default=None, choices=TREATMENT_KINDS,
+                        help='Which non-gaussian noise_kind to plot vs gaussian (auto-detect if omitted)')
     parser.add_argument('--timestamp', type=str, default=None,
-                        help='Session timestamp YYYYMMDD_HHMMSS. If omitted, auto-find the latest matching pair; '
-                             'if still not found, fall back to the legacy {dataset}_{method}_run1 files.')
+                        help='Session timestamp YYYYMMDD_HHMMSS (auto-find latest if omitted)')
+    parser.add_argument('--results_dir', type=str, default='experiment_results')
+    parser.add_argument('--output', type=str, default=None)
     args = parser.parse_args()
 
-    # Resolve which file pair to plot.
-    # Priority: explicit --timestamp > auto-find new format > legacy filenames.
-    ts = args.timestamp or find_latest_timestamp(args.results_dir, args.dataset)
+    treatment_kind = args.noise_kind
+    if treatment_kind is None:
+        treatment_kind, _ = autodetect_treatment_kind(args.results_dir, args.dataset, args.timestamp)
+        if treatment_kind is None:
+            print(f"No treatment noise_kind found with matching gaussian baseline for {args.dataset}.")
+            return
+        print(f"Auto-detected treatment noise_kind: {treatment_kind}")
 
-    if ts is not None:
-        dfl_log         = os.path.join(args.results_dir, f'dfl_{args.dataset}_{ts}.log')
-        gaussian_log    = os.path.join(args.results_dir, f'gaussian_{args.dataset}_{ts}.log')
-        dfl_output      = os.path.join(args.results_dir, f'dfl_{args.dataset}_{ts}.txt')
-        gaussian_output = os.path.join(args.results_dir, f'gaussian_{args.dataset}_{ts}.txt')
-        chart_ts = ts
-    else:
-        # Legacy fallback for files generated before the timestamp migration.
-        dfl_log         = os.path.join(args.results_dir, f'{args.dataset}_dfl_run1_live.log')
-        gaussian_log    = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run1_live.log')
-        dfl_output      = os.path.join(args.results_dir, f'{args.dataset}_dfl_run1_output.txt')
-        gaussian_output = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run1_output.txt')
-        chart_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    ts, t_log, g_log, t_txt, g_txt = find_session_files(
+        args.results_dir, args.dataset, treatment_kind, args.timestamp,
+    )
+    if ts is None:
+        print(f"No matching session files for {args.dataset}/{treatment_kind}.")
+        return
 
     if args.output is None:
         args.output = os.path.join(
             args.results_dir,
-            f'comparison_{args.dataset}_{chart_ts}.png'
+            f'comparison_{args.dataset}_{treatment_kind}_vs_gaussian_{ts}.png',
         )
 
-    # Read parameters from the dfl output summary if available.
-    params = {}
-    if os.path.exists(dfl_output):
-        params = read_experiment_output(dfl_output)
-
-    # Plot
-    plot_comparison(args.dataset, dfl_log, gaussian_log, dfl_output, gaussian_output, args.output, params)
+    params = read_experiment_output(t_txt) or read_experiment_output(g_txt)
+    plot_comparison(args.dataset, treatment_kind, t_log, g_log, t_txt, g_txt, args.output, params)
 
 
 if __name__ == '__main__':
