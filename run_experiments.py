@@ -15,9 +15,13 @@ class ExperimentRunner:
         self.results_dir = "experiment_results"
         os.makedirs(self.results_dir, exist_ok=True)
 
+        # Single session timestamp shared by every log/output/chart in this run.
+        # Format matches the original comparison_*_{timestamp}.png convention.
+        # Naming scheme: {method}_{dataset}_{timestamp}_run{id}.{ext}
+        self.session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
         self.dp_methods = ["none", "gaussian", "dfl"]
         self.datasets = ["CIFAR10", "MNIST", "SVHN"]
-        self.num_runs = 3
         self.global_epochs = {"CIFAR10": 30, "MNIST": 30, "SVHN": 30}
         self.local_epochs = {"CIFAR10": 4, "MNIST": 3, "SVHN": 4}
         self.gir_common = {
@@ -106,8 +110,12 @@ class ExperimentRunner:
                     f"Unfair sigma in {dataset}: dfl({dfl_sigma}) must equal gaussian({gaussian_sigma})."
                 )
 
-    def build_command(self, dataset: str, dp_method: str, run_id: int):
-        params = self.dataset_params.get(dataset, self.dataset_params["CIFAR10"])[dp_method]
+    def build_command(self, dataset: str, dp_method: str):
+        params = dict(self.dataset_params.get(dataset, self.dataset_params["CIFAR10"])[dp_method])
+        # Allow CLI override of chaotic_factor for DFL alpha sweeps.
+        override = getattr(self, "chaotic_factor_override", None)
+        if override is not None and dp_method == "dfl":
+            params["chaotic_factor"] = str(override)
 
         cmd = [
             sys.executable,
@@ -138,7 +146,7 @@ class ExperimentRunner:
             "--user_sample_rate",
             "1.0",
             "--seed",
-            str(20260312 + run_id),
+            "20260313",
             "--noise_decay",
             params["noise_decay"],
             "--noise_decay_type",
@@ -196,9 +204,9 @@ class ExperimentRunner:
 
         return cmd
 
-    def run_experiment(self, dataset: str, dp_method: str, run_id: int):
-        print(f"\nRunning {dataset} - {dp_method} - run {run_id + 1}")
-        cmd = self.build_command(dataset, dp_method, run_id)
+    def run_experiment(self, dataset: str, dp_method: str):
+        print(f"\nRunning {dataset} - {dp_method}")
+        cmd = self.build_command(dataset, dp_method)
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
@@ -224,8 +232,13 @@ class ExperimentRunner:
 
         output_lines = []
         last_log_time = time.time()
-        output_file = os.path.join(self.results_dir, f"{dataset}_{dp_method}_run{run_id + 1}_output.txt")
-        live_log_file = os.path.join(self.results_dir, f"{dataset}_{dp_method}_run{run_id + 1}_live.log")
+        # Naming: {method}_{dataset}_{session_timestamp}.{ext}
+        # Matches the original comparison_{dataset}_{timestamp}.png style; all files
+        # from one ExperimentRunner instance share the same session_timestamp so a
+        # plot can be located by timestamp alone.
+        ts = self.session_timestamp
+        output_file = os.path.join(self.results_dir, f"{dp_method}_{dataset}_{ts}.txt")
+        live_log_file = os.path.join(self.results_dir, f"{dp_method}_{dataset}_{ts}.log")
 
         # Create live log file immediately
         with open(live_log_file, "w", encoding="utf-8") as log_f:
@@ -419,32 +432,22 @@ class ExperimentRunner:
 
         for dataset in self.datasets:
             for dp_method in self.dp_methods:
-                run_metrics = []
-                for run_id in range(self.num_runs):
-                    try:
-                        m = self.run_experiment(dataset, dp_method, run_id)
-                        run_metrics.append(m)
-                    except Exception as e:
-                        print(f"Run failed: {dataset}/{dp_method}/run{run_id + 1}: {e}")
+                try:
+                    m = self.run_experiment(dataset, dp_method)
+                except Exception as e:
+                    print(f"Run failed: {dataset}/{dp_method}: {e}")
+                    continue
 
-                if run_metrics:
-                    # choose longest parsed series and average by aligned prefix
-                    series = [m["accuracies"] for m in run_metrics if m["accuracies"]]
-                    if series:
-                        min_len = min(len(s) for s in series)
-                        avg_series = np.mean([s[:min_len] for s in series], axis=0).tolist()
-                    else:
-                        avg_series = []
-
-                    all_results[dataset][dp_method] = avg_series
-                    all_abilities[dataset][dp_method] = float(np.mean([m["gradient_inversion_ability"] for m in run_metrics]))
-                    all_times[dataset][dp_method] = float(np.mean([m["training_time"] for m in run_metrics]))
+                all_results[dataset][dp_method] = m["accuracies"]
+                all_abilities[dataset][dp_method] = float(m["gradient_inversion_ability"])
+                all_times[dataset][dp_method] = float(m["training_time"])
 
         self.save_results(all_results, all_abilities, all_times)
         return all_results
 
     def save_results(self, all_results, all_abilities, all_times):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Reuse the session timestamp so JSON/CSV match the run logs and chart.
+        timestamp = self.session_timestamp
 
         json_file = os.path.join(self.results_dir, f"comparison_results_{timestamp}.json")
         with open(json_file, "w", encoding="utf-8") as f:
@@ -494,7 +497,6 @@ class ExperimentRunner:
         print("=" * 80)
         print(f"Datasets: {self.datasets}")
         print(f"Methods : {self.dp_methods}")
-        print(f"Runs/method: {self.num_runs}")
         print(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         results = self.run_comparison_experiments()
@@ -516,16 +518,17 @@ class ExperimentRunner:
 
 def main():
     parser = argparse.ArgumentParser(description="Run DP method comparison experiments")
-    parser.add_argument("--num_runs", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--datasets", nargs="+", default=["CIFAR10", "MNIST", "SVHN"])
     parser.add_argument("--dp_methods", nargs="+", default=["none", "gaussian", "dfl"])
+    parser.add_argument("--chaotic_factor", type=float, default=None,
+                        help="Override DFL chaotic_factor (alpha sweep). Same naming, distinguished by timestamp.")
     args = parser.parse_args()
 
     runner = ExperimentRunner()
-    runner.num_runs = args.num_runs
     runner.datasets = args.datasets
     runner.dp_methods = args.dp_methods
+    runner.chaotic_factor_override = args.chaotic_factor
     if args.epochs is not None:
         for d in runner.datasets:
             runner.global_epochs[d] = args.epochs

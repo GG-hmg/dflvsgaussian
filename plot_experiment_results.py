@@ -215,31 +215,67 @@ def plot_comparison(dataset, dfl_log, gaussian_log, dfl_output, gaussian_output,
     plt.close()
 
 
+def find_latest_timestamp(results_dir, dataset):
+    """
+    Locate the most recent session timestamp for which both
+    dfl_{dataset}_{ts}.log and gaussian_{dataset}_{ts}.log exist.
+    Returns timestamp string or None.
+    """
+    pattern = os.path.join(results_dir, f'dfl_{dataset}_*.log')
+    dfl_logs = glob.glob(pattern)
+    timestamps = []
+    for path in dfl_logs:
+        m = re.search(rf'dfl_{re.escape(dataset)}_(\d{{8}}_\d{{6}})\.log$',
+                      os.path.basename(path))
+        if not m:
+            continue
+        ts = m.group(1)
+        gaussian = os.path.join(results_dir, f'gaussian_{dataset}_{ts}.log')
+        if os.path.exists(gaussian):
+            timestamps.append(ts)
+    return max(timestamps) if timestamps else None
+
+
 def main():
     parser = argparse.ArgumentParser(description='Plot experiment results comparison')
     parser.add_argument('--dataset', type=str, default='CIFAR10', help='Dataset name')
-    parser.add_argument('--run_id', type=int, default=1, help='Run ID')
     parser.add_argument('--results_dir', type=str, default='experiment_results', help='Results directory')
     parser.add_argument('--output', type=str, default=None, help='Output figure path')
+    parser.add_argument('--timestamp', type=str, default=None,
+                        help='Session timestamp YYYYMMDD_HHMMSS. If omitted, auto-find the latest matching pair; '
+                             'if still not found, fall back to the legacy {dataset}_{method}_run1 files.')
     args = parser.parse_args()
 
-    # 生成带时间的文件名
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    # Resolve which file pair to plot.
+    # Priority: explicit --timestamp > auto-find new format > legacy filenames.
+    ts = args.timestamp or find_latest_timestamp(args.results_dir, args.dataset)
+
+    if ts is not None:
+        dfl_log         = os.path.join(args.results_dir, f'dfl_{args.dataset}_{ts}.log')
+        gaussian_log    = os.path.join(args.results_dir, f'gaussian_{args.dataset}_{ts}.log')
+        dfl_output      = os.path.join(args.results_dir, f'dfl_{args.dataset}_{ts}.txt')
+        gaussian_output = os.path.join(args.results_dir, f'gaussian_{args.dataset}_{ts}.txt')
+        chart_ts = ts
+    else:
+        # Legacy fallback for files generated before the timestamp migration.
+        dfl_log         = os.path.join(args.results_dir, f'{args.dataset}_dfl_run1_live.log')
+        gaussian_log    = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run1_live.log')
+        dfl_output      = os.path.join(args.results_dir, f'{args.dataset}_dfl_run1_output.txt')
+        gaussian_output = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run1_output.txt')
+        chart_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+
     if args.output is None:
-        args.output = os.path.join(args.results_dir, f'comparison_{args.dataset}_{timestamp}.png')
+        args.output = os.path.join(
+            args.results_dir,
+            f'comparison_{args.dataset}_{chart_ts}.png'
+        )
 
-    # 构建文件路径
-    dfl_log = os.path.join(args.results_dir, f'{args.dataset}_dfl_run{args.run_id}_live.log')
-    gaussian_log = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run{args.run_id}_live.log')
-    dfl_output = os.path.join(args.results_dir, f'{args.dataset}_dfl_run{args.run_id}_output.txt')
-    gaussian_output = os.path.join(args.results_dir, f'{args.dataset}_gaussian_run{args.run_id}_output.txt')
-
-    # 读取参数
+    # Read parameters from the dfl output summary if available.
     params = {}
     if os.path.exists(dfl_output):
         params = read_experiment_output(dfl_output)
 
-    # 绘图
+    # Plot
     plot_comparison(args.dataset, dfl_log, gaussian_log, dfl_output, gaussian_output, args.output, params)
 
 

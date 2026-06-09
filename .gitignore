@@ -35,3 +35,9 @@ docs/
 
 # Claude settings
 .claude/
+
+# Playwright MCP page snapshots
+.playwright-mcp/
+
+# Local backup of legacy experiment files
+experiment_results/.backup/

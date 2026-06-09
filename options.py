@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--device', type=int, default=0, help='Set the visible CUDA device for calculations')
 
     parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
-    parser.add_argument('--seed', type=int, default=20260312,
+    parser.add_argument('--seed', type=int, default=20260313,
                         help="Global random seed for reproducible comparison")
 
     parser.add_argument('--no_clip', action='store_true')
