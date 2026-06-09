@@ -34,28 +34,29 @@ class ExperimentRunner:
         }
 
         # Pure mechanism comparison:
-        # keep epsilon/sigma and core training settings aligned across DP methods.
-        # Gaussian vs DFL only differ in noise generation mechanism.
+        # keep epsilon and core training settings aligned across DP methods.
+        # Sigma is derived from epsilon by the Gaussian mechanism formula
+        # (no per-method sigma_factor multiplier — that broke the DP claim).
         self.dataset_params = {
             "FashionMNIST": {
-                "none": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "sigma_factor_dfl": "0.30", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
+                "none":     {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "dfl":      {"num_clients": "3", "batch_size": "64", "lr": "0.003", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
             },
             "MNIST": {
-                "none": {"num_clients": "3", "batch_size": "64", "lr": "0.001", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "sigma_factor_dfl": "0.30", "clipping_bound": "1.5", "local_epoch": "3", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
+                "none":     {"num_clients": "3", "batch_size": "64", "lr": "0.001", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "gaussian": {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "dfl":      {"num_clients": "3", "batch_size": "64", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "3", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
             },
             "SVHN": {
-                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.30", "sigma_factor_dfl": "0.30", "clipping_bound": "1.5", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
+                "none":     {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.4"},
+                "dfl":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "1.5", "local_epoch": "4", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "8", "sparsity_ratio": "0.4"},
             },
             "CIFAR10": {
-                "none": {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.01", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
-                "dfl": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "sigma_factor_gaussian": "0.01", "sigma_factor_dfl": "0.01", "clipping_bound": "2.0", "local_epoch": "4", "noise_decay": "1.0", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "11", "sparsity_ratio": "0.0"},
+                "none":     {"num_clients": "3", "batch_size": "32", "lr": "0.002", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "gaussian": {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "chaotic_factor": "0.0", "sparsity_ratio": "0.0"},
+                "dfl":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "target_epsilon": "8.0", "clipping_bound": "2.0", "local_epoch": "4", "use_chaotic": "1", "chaotic_factor": "1.0", "dfl_a": "4.0", "dfl_b": "501.0", "dfl_k": "3", "dfl_burn_in": "2048", "dfl_decimation": "11", "sparsity_ratio": "0.0"},
             },
         }
         self._validate_privacy_order()
@@ -63,9 +64,8 @@ class ExperimentRunner:
     def _validate_privacy_order(self):
         """
         Enforce fair comparison settings:
-        1) Shared training hyper-parameters are identical across methods.
-        2) Gaussian and DFL use the same target epsilon.
-        3) Gaussian and DFL use the same sigma (pure mechanism control).
+        - Shared training hyper-parameters are identical across methods.
+        - Gaussian and DFL use the same target epsilon (sigma is derived).
         """
         for dataset, method_params in self.dataset_params.items():
             required = {"none", "gaussian", "dfl"}
@@ -77,7 +77,7 @@ class ExperimentRunner:
             dfl_cfg = method_params["dfl"]
 
             # Keys that MUST be identical across all three methods for fair comparison
-            # Excludes: lr, noise_decay (DFL needs different values by design)
+            # Excludes: lr (DFL/Gaussian may need different tuning)
             shared_keys = [
                 "num_clients", "batch_size",
                 "target_epsilon", "clipping_bound", "local_epoch",
@@ -97,17 +97,6 @@ class ExperimentRunner:
             if abs(gaussian_eps - dfl_eps) > 1e-12:
                 raise ValueError(
                     f"Unfair epsilon in {dataset}: gaussian({gaussian_eps}) must equal dfl({dfl_eps})."
-                )
-
-            gaussian_sigma = float(gaussian_cfg.get("sigma_factor_gaussian", "0.0"))
-            dfl_sigma = float(dfl_cfg.get("sigma_factor_dfl", str(gaussian_sigma)))
-            if gaussian_sigma <= 0:
-                raise ValueError(
-                    f"Gaussian sigma must be positive in {dataset}, got {gaussian_sigma}."
-                )
-            if gaussian_sigma > 0 and dfl_sigma > 0 and dfl_sigma != gaussian_sigma:
-                raise ValueError(
-                    f"Unfair sigma in {dataset}: dfl({dfl_sigma}) must equal gaussian({gaussian_sigma})."
                 )
 
     def build_command(self, dataset: str, dp_method: str):
@@ -147,10 +136,6 @@ class ExperimentRunner:
             "1.0",
             "--seed",
             "20260313",
-            "--noise_decay",
-            params["noise_decay"],
-            "--noise_decay_type",
-            "exponential",
             "--sparsity_ratio",
             params.get("sparsity_ratio", "0.0"),
             "--dp_method",
@@ -159,19 +144,6 @@ class ExperimentRunner:
 
         for k, v in self.gir_common.items():
             cmd.extend([f"--{k}", v])
-
-        # Keep method-specific sigma factors consistent with each DP design.
-        if dp_method in ("gaussian", "dfl"):
-            sigma_gaussian = params.get("sigma_factor_gaussian", "0.002")
-            sigma_dfl = params.get("sigma_factor_dfl", sigma_gaussian)
-            cmd.extend(
-                [
-                    "--sigma_factor_gaussian",
-                    sigma_gaussian,
-                    "--sigma_factor_dfl",
-                    sigma_dfl,
-                ]
-            )
 
         if dp_method == "none":
             cmd.extend(["--no_noise"])
@@ -465,8 +437,8 @@ class ExperimentRunner:
                         "final_accuracy": accs[-1] if accs else 0.0,
                         "convergence_epoch": self.calculate_convergence_epoch(accs),
                         "target_epsilon": float(method_cfg.get("target_epsilon", 0.0)),
-                        "sigma_factor_gaussian": float(method_cfg.get("sigma_factor_gaussian", 0.002)),
-                        "sigma_factor_dfl": float(method_cfg.get("sigma_factor_dfl", method_cfg.get("sigma_factor_gaussian", 0.002))),
+                        "clipping_bound": float(method_cfg.get("clipping_bound", 0.0)),
+                        "chaotic_factor": float(method_cfg.get("chaotic_factor", 0.0)),
                     }
             json.dump(payload, f, indent=2, ensure_ascii=False)
 

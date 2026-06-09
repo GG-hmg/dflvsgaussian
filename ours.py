@@ -1,6 +1,5 @@
 import os
 import sys
-import builtins
 
 if 'DP_METHOD' in os.environ:
     dp_method_env = os.environ['DP_METHOD']
@@ -10,20 +9,17 @@ if 'DP_METHOD' in os.environ:
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from options import parse_args
-from data import *
-from net import *
-from tqdm import tqdm
+from data import get_mnist_datasets, get_clients_datasets, get_CIFAR10, get_SVHN, get_FashionMNIST
+from net import cifar10Net, SVHNNet, fashionmnistNet, mnistNet
 from utils import adaptive_privacy_budget, generate_dfl_gaussian_noise, generate_random_gaussian_noise_like
-from tqdm.auto import trange, tqdm
+from tqdm.auto import trange
 from gradient_inversion_risk_simulator import (
     GradientInversionRiskConfig,
     DefenseSimulationConfig,
     simulate_gradient_inversion_risk,
 )
-import copy
 import random
 import datetime
 import torch.nn.functional as F
@@ -33,50 +29,14 @@ import math
 
 warnings.filterwarnings('ignore')
 
-def _configure_console_output() -> None:
-    """避免 Windows GBK 控制台的 UnicodeEncodeError"""
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except Exception:
-            pass
-
-_configure_console_output()
-
-def _fix_mojibake_text(text):
-    """尽力恢复乱码的中文文本"""
-    if not isinstance(text, str) or not text:
-        return text
-    if text.isascii():
-        return text
-    # 检测是否是UTF-8编码的GBK字节被错误解码为UTF-8
+# Make Windows GBK console safe for UTF-8 print() output.
+for _stream in (sys.stdout, sys.stderr):
     try:
-        # 尝试用GBK解码，再用UTF-8编码，看是否能还原
-        encoded = text.encode('latin1')  # 这步不会改变内容，只是让字节变成字符串
-        try:
-            decoded_gbk = encoded.decode('gbk')
-            # 检查解码后是否包含有效中文
-            if any('\u4e00' <= c <= '\u9fff' for c in decoded_gbk):
-                return decoded_gbk
-        except Exception:
-            pass
+        _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    suspicious = ("鏂", "闆", "鍔", "绗", "鐨", "锛", "鍏", "姝", "妫", "瀹")
-    if not any(token in text for token in suspicious):
-        return text
-    try:
-        return text.encode("gbk", errors="strict").decode("utf-8", errors="strict")
-    except Exception:
-        return text
 
-_original_print = builtins.print
 
-def _safe_print(*args, **kwargs):
-    fixed = tuple(_fix_mojibake_text(a) if isinstance(a, str) else a for a in args)
-    _original_print(*fixed, **kwargs)
-
-builtins.print = _safe_print
 
 args = parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
@@ -117,47 +77,17 @@ print(f"DP方法: {args.dp_method}")
 print(f"Random seed: {args.seed}")
 print(f"数据集: {dataset}, 学习率: {args.lr}, 隐私预算ε: {target_epsilon}, 裁剪边界: {clipping_bound}")
 
-if args.store == True:
-    results_dir = f'./txt/{args.dirStr}'
-    os.makedirs(results_dir, exist_ok=True)
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{dataset}_results_{timestamp}.txt"
-    file_path = os.path.join(results_dir, filename)
-
-    print(f"结果将写入文件: {file_path}")
-
-    try:
-        saved_stdout = sys.stdout
-        file = open(file_path, 'a', encoding='utf-8')
-        sys.stdout = file
-
-        print(f"=== 联邦学习训练开始 ===")
-        print(f"时间: {datetime.datetime.now()}")
-        print(f"数据集: {dataset}")
-        print(f"DP方法: {args.dp_method}")
-        print(f"客户端数量: {num_clients}")
-        print(f"全局训练轮次: {global_epoch}")
-        print(f"本地训练轮次: {local_epoch}")
-        print(f"学习率: {args.lr}")
-        print(f"隐私预算ε: {target_epsilon}")
-        print(f"裁剪边界: {clipping_bound}")
-        if args.dp_method == 'dfl':
-            print(f"混沌系统: DFL(a={args.dfl_a}, b={args.dfl_b}, k={args.dfl_k})")
-            print(f"混沌因子: {args.chaotic_factor}, 衰减率: {args.chaotic_decay}")
-            print(f"抽取间隔: {args.dfl_decimation}")
-        print("=" * 50)
-
-    except Exception as e:
-        print(f"错误: 无法创建结果文件 - {e}")
-        print("输出重定向失败，将回退到控制台输出。")
-        sys.stdout = saved_stdout
-        args.store = False
-
-
 def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     """
-    改进的混沌噪声生成 - 使用DFL (Discrete Fractional Logistic) 混沌映射
+    DFL chaotic Gaussian noise generation.
+
+    Output is already standard-normal (mean 0, var 1) because the underlying
+    DFL pipeline ends in an inverse-CDF Gaussian sampler. No extra std
+    normalization is applied — re-normalizing would inject sample-std jitter
+    and shift variance off 1.0.
+
+    The seed → x0 mapping is the only hash needed; _get_pure_dfl_sequences
+    consumes x0 directly without a second avalanche step.
     """
     a = getattr(args, 'dfl_a', 4.0)
     b = getattr(args, 'dfl_b', 501.0)
@@ -165,10 +95,11 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
     decimation = getattr(args, 'dfl_decimation', 12)
     burn_in = getattr(args, 'dfl_burn_in', 2048)
 
+    # Single hash: deterministic per (client, epoch, batch) → x0 ∈ [0, 1)
     seed_value = client_id * 1000000 + epoch * 10000 + batch_idx
     x0 = ((seed_value * 2654435761) & 0xFFFFFFFF) / 4294967296.0
 
-    chaotic_noise = generate_dfl_gaussian_noise(
+    return generate_dfl_gaussian_noise(
         shape,
         a=a,
         b=b,
@@ -179,62 +110,152 @@ def generate_chaotic_noise_v2(shape, client_id, epoch, batch_idx, dp_method):
         device=device,
     )
 
-    # 校准方差为1
-    with torch.no_grad():
-        std = chaotic_noise.std()
-        if std > 0:
-            chaotic_noise = chaotic_noise / std
-    return chaotic_noise
-
 
 def adaptive_noise_scale(client_epsilon, delta, clipping_bound, dp_method, current_epoch, total_epochs):
     """
-    自适应噪声尺度计算 - 根据DP方法分配不同的sigma因子
-    确保DFL噪声强度大于高斯噪声，从而在相同名义epsilon下实现更低风险
+    Gaussian-mechanism noise scale: sigma = C * sqrt(2 ln(1.25/delta)) / epsilon
+
+    One-shot Gaussian mechanism (Dwork & Roth, Theorem A.1). Does NOT
+    compose over T rounds — true cumulative epsilon across training is
+    larger; use an RDP/moment accountant if you need a formal multi-round
+    DP statement.
+
+    No sigma_factor / decay_factor / sigma_cap — those previously diluted
+    noise ~100x and broke the DP guarantee.
     """
-    if client_epsilon <= 0:
+    if client_epsilon <= 0 or dp_method == 'none':
         return 0.0
+    return clipping_bound * np.sqrt(2.0 * np.log(1.25 / delta)) / client_epsilon
 
-    base_sigma = clipping_bound * np.sqrt(2 * np.log(1.25 / delta)) / client_epsilon
 
-    # 根据DP方法分配sigma因子（大幅降低以提高准确率）
-    if dp_method == 'none':
-        sigma_factor = 0.0
-    elif dp_method == 'gaussian':
-        sigma_factor = args.sigma_factor_gaussian
-    elif dp_method == 'dfl':
-        sigma_factor = args.sigma_factor_dfl
+def _clip_gradients_inplace(model, clipping_bound):
+    """Global L2 clip of all parameter grads in-place. Returns the pre-clip norm."""
+    grads = [p.grad.view(-1) for p in model.parameters() if p.grad is not None]
+    if not grads:
+        return 0.0
+    grad_norm = torch.norm(torch.cat(grads))
+    if grad_norm > clipping_bound:
+        scale = clipping_bound / grad_norm
+        for param in model.parameters():
+            if param.grad is not None:
+                param.grad.data.mul_(scale)
+    return float(grad_norm.item())
+
+
+def _add_dp_noise_inplace(model, sigma, dp_method, chaotic_factor,
+                          client_id, current_epoch, batch_seed):
+    """
+    Inject DP noise into param.grad in-place.
+
+    For dp_method='gaussian': iid N(0, sigma^2) per parameter.
+    For dp_method='dfl': variance-preserving mix
+        flat = sqrt(alpha) * DFL + sqrt(1-alpha) * Gaussian, scaled by sigma.
+    """
+    grad_params = [p for p in model.parameters() if p.grad is not None]
+    if not grad_params or sigma <= 0:
+        return
+
+    if dp_method == 'gaussian':
+        for param in grad_params:
+            param.grad.data.add_(generate_random_gaussian_noise_like(param.grad) * sigma)
+        return
+
+    # dfl path: build one flat unit-variance noise vector then redistribute.
+    total_numel = sum(p.grad.numel() for p in grad_params)
+    flat_chaotic = generate_chaotic_noise_v2(
+        torch.Size([total_numel]), client_id, current_epoch, batch_seed, dp_method,
+    ).to(device)
+
+    alpha = max(0.0, min(1.0, float(chaotic_factor)))
+    if alpha < 1.0:
+        flat_gauss = generate_random_gaussian_noise_like(flat_chaotic)
+        flat_unit = math.sqrt(alpha) * flat_chaotic + math.sqrt(1.0 - alpha) * flat_gauss
     else:
-        sigma_factor = 0.002
+        flat_unit = flat_chaotic
+    flat_noise = flat_unit * sigma
 
-    # 训练后期衰减噪声
-    if current_epoch < total_epochs // 2:
-        decay_factor = 1.0
-    else:
-        decay_factor = 0.5
+    offset = 0
+    for param in grad_params:
+        n = param.grad.numel()
+        param.grad.data.add_(flat_noise[offset:offset + n].view_as(param.grad))
+        offset += n
 
-    sigma = base_sigma * sigma_factor * decay_factor
-    sigma = max(0.001, sigma)
 
-    # Stability guard: prevent overly large noise from collapsing optimization.
-    # Use the same cap for Gaussian/DFL to keep pure mechanism comparison fair.
-    if dataset in ("CIFAR10", "SVHN"):
-        sigma_cap = 0.030
-    elif dataset == "MNIST":
-        sigma_cap = 0.020
-    else:
-        sigma_cap = 0.030
-    if dp_method != 'none':
-        sigma = min(sigma, sigma_cap)
-    return sigma
+def _apply_sparsity_inplace(model, sparsity_ratio):
+    """Zero out (1 - sparsity_ratio) of smallest-magnitude grad entries per parameter."""
+    if sparsity_ratio <= 0:
+        return
+    for param in model.parameters():
+        if param.grad is None:
+            continue
+        grad_flat = param.grad.view(-1)
+        k = int((1 - sparsity_ratio) * grad_flat.numel())
+        if 0 < k < grad_flat.numel():
+            _, indices = torch.topk(grad_flat.abs(), k)
+            mask = torch.zeros_like(grad_flat)
+            mask[indices] = 1
+            param.grad.data.mul_(mask.view(param.grad.shape))
+
+
+def _snapshot_grads(model):
+    """Return a detached clone of every parameter's grad (in parameter order)."""
+    return [p.grad.detach().clone() for p in model.parameters() if p.grad is not None]
+
+
+def _run_gir_evaluation(model, data, labels, real_noisy_grads,
+                        sigma, dp_method, chaotic_factor,
+                        risk_cfg, current_epoch, client_id,
+                        local_epoch_idx, batch_idx):
+    """
+    Evaluate gradient-inversion defense quality using the ACTUAL clipped+noised
+    gradients (real_noisy_grads) that training transmitted, not a freshly
+    resampled noise stream inside the simulator.
+    """
+    defense_cfg = DefenseSimulationConfig(
+        dp_method=str(dp_method),
+        sigma=float(sigma),
+        clipping_bound=float(clipping_bound),
+        apply_clipping=bool(not args.no_clip),
+        apply_noise=bool(dp_method != 'none' and (not args.no_noise) and sigma > 0),
+        use_chaotic=bool(dp_method == 'dfl' and args.use_chaotic),
+        chaotic_factor=float(chaotic_factor if dp_method == 'dfl' else 0.0),
+        sparsity_ratio=float(args.sparsity_ratio),
+        seed_context=int(
+            args.seed
+            + current_epoch * 100000
+            + client_id * 1000
+            + local_epoch_idx * 100
+            + batch_idx
+        ),
+        dfl_a=float(getattr(args, 'dfl_a', 4.0)),
+        dfl_b=float(getattr(args, 'dfl_b', 501.0)),
+        dfl_k=int(getattr(args, 'dfl_k', 7)),
+        dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
+    )
+    risk_result = simulate_gradient_inversion_risk(
+        model=model,
+        batch_data=data.detach(),
+        batch_labels=labels.detach(),
+        risk_cfg=risk_cfg,
+        defense_cfg=defense_cfg,
+        real_noisy_grads=real_noisy_grads,
+    )
+    return float(
+        risk_result.get(
+            "defense_score",
+            1.0 - float(risk_result.get("risk_score", 0.5))
+        )
+    )
 
 
 def local_update_with_dp(model, dataloader, global_model, client_data_size,
                          total_data_size, client_epsilon,
                          current_epoch=0, dp_method=None, client_id=0):
     """
-    改进的本地更新函数 - 使用动态噪声尺度，确保DFL噪声强于高斯
-    修复：全局梯度裁剪，统一添加噪声
+    Client-side training with DP. Each batch:
+        forward → loss → backward → (clip → noise) → snapshot → GIR eval
+        → sparsity → optimizer.step
+    Returns (model_update, avg_defense_score, avg_loss).
     """
     if dp_method is None:
         dp_method = args.dp_method
@@ -243,15 +264,9 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
     global_model = global_model.to(device)
 
     global_params = [param.clone().detach() for param in global_model.parameters()]
-
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
     criterion = nn.CrossEntropyLoss()
-
     model.train()
-    epoch_losses = []
-    risk_scores_per_batch = []
-    risk_eval_count = 0
-    max_risk_evals = max(1, int(getattr(args, 'gir_max_evals_per_client_update', 1)))
 
     risk_cfg = GradientInversionRiskConfig(
         attack_steps=int(getattr(args, 'gir_attack_steps', 30)),
@@ -263,10 +278,7 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
         dataset=str(dataset),
     )
 
-    if dp_method == 'dfl' and args.use_chaotic:
-        chaotic_factor = args.chaotic_factor  # 直接使用传入参数，不衰减
-    else:
-        chaotic_factor = args.chaotic_factor if dp_method == 'dfl' else 0.0
+    chaotic_factor = args.chaotic_factor if dp_method == 'dfl' else 0.0
 
     try:
         dataloader_len = len(dataloader)
@@ -278,6 +290,11 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
     else:
         risk_eval_interval = max(1, dataloader_len) if dataloader_len > 0 else 1
 
+    max_risk_evals = max(1, int(getattr(args, 'gir_max_evals_per_client_update', 1)))
+    epoch_losses = []
+    risk_scores_per_batch = []
+    risk_eval_count = 0
+
     for local_epoch_idx in range(local_epoch):
         batch_losses = []
         for batch_idx, (data, labels) in enumerate(dataloader):
@@ -286,128 +303,38 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
             outputs = model(data)
             loss = criterion(outputs, labels)
             loss.backward()
-
             batch_losses.append(loss.item())
-            sigma = 0.0
-            pending_risk_eval = False
 
+            sigma = 0.0
             with torch.no_grad():
                 if dp_method != 'none':
                     sigma = adaptive_noise_scale(client_epsilon, target_delta,
                                                  clipping_bound, dp_method,
                                                  current_epoch, global_epoch)
+                    if not args.no_clip:
+                        _clip_gradients_inplace(model, clipping_bound)
+                    if not args.no_noise:
+                        batch_seed = batch_idx + local_epoch_idx * max(1, dataloader_len)
+                        _add_dp_noise_inplace(model, sigma, dp_method, chaotic_factor,
+                                              client_id, current_epoch, batch_seed)
 
-                    grads = []
-                    for param in model.parameters():
-                        if param.grad is not None:
-                            grads.append(param.grad.view(-1))
-                    if not grads:
-                        continue
-
-                    all_grads = torch.cat(grads)
-                    grad_norm = torch.norm(all_grads)
-
-                    if not args.no_clip and grad_norm > clipping_bound:
-                        scale = clipping_bound / grad_norm
-                        for param in model.parameters():
-                            if param.grad is not None:
-                                param.grad.data.mul_(scale)
-
-                    if not args.no_noise and sigma > 0:
-                        grad_params = [p for p in model.parameters() if p.grad is not None]
-                        if dp_method == 'gaussian':
-                            for param in grad_params:
-                                noise = generate_random_gaussian_noise_like(param.grad) * sigma
-                                param.grad.data.add_(noise)
-                        else:  # dfl
-                            if args.use_chaotic and grad_params:
-                                total_numel = sum(p.grad.numel() for p in grad_params)
-                                batch_seed = batch_idx + local_epoch_idx * max(1, dataloader_len)
-                                flat_chaotic_noise = generate_chaotic_noise_v2(
-                                    torch.Size([total_numel]),
-                                    client_id,
-                                    current_epoch,
-                                    batch_seed,
-                                    dp_method
-                                ).to(device)
-
-                                chaotic_weight = max(0.0, min(1.0, float(chaotic_factor)))
-                                if chaotic_weight < 1.0:
-                                    flat_gaussian_noise = generate_random_gaussian_noise_like(flat_chaotic_noise)
-                                    flat_unit_noise = (
-                                        math.sqrt(chaotic_weight) * flat_chaotic_noise
-                                        + math.sqrt(1.0 - chaotic_weight) * flat_gaussian_noise
-                                    )
-                                else:
-                                    flat_unit_noise = flat_chaotic_noise
-                                flat_noise = flat_unit_noise * sigma
-
-                                offset = 0
-                                for param in grad_params:
-                                    numel = param.grad.numel()
-                                    param_noise = flat_noise[offset:offset + numel].view_as(param.grad)
-                                    param.grad.data.add_(param_noise)
-                                    offset += numel
-                            else:
-                                for param in grad_params:
-                                    noise = generate_random_gaussian_noise_like(param.grad) * sigma
-                                    param.grad.data.add_(noise)
-
-                if risk_eval_count < max_risk_evals:
-                    if (batch_idx + 1) % risk_eval_interval == 0 or batch_idx == len(dataloader) - 1:
-                        pending_risk_eval = True
-
-            if pending_risk_eval and risk_eval_count < max_risk_evals:
-                defense_cfg = DefenseSimulationConfig(
-                    dp_method=str(dp_method),
-                    sigma=float(sigma),
-                    clipping_bound=float(clipping_bound),
-                    apply_clipping=bool(not args.no_clip),
-                    apply_noise=bool(dp_method != 'none' and (not args.no_noise) and sigma > 0),
-                    use_chaotic=bool(dp_method == 'dfl' and args.use_chaotic),
-                    chaotic_factor=float(chaotic_factor if dp_method == 'dfl' else 0.0),
-                    sparsity_ratio=float(args.sparsity_ratio),
-                    seed_context=int(
-                        args.seed
-                        + current_epoch * 100000
-                        + client_id * 1000
-                        + local_epoch_idx * 100
-                        + batch_idx
-                    ),
-                    dfl_a=float(getattr(args, 'dfl_a', 4.0)),
-                    dfl_b=float(getattr(args, 'dfl_b', 501.0)),
-                    dfl_k=int(getattr(args, 'dfl_k', 7)),
-                    dfl_burn_in=int(getattr(args, 'dfl_burn_in', 2048)),
+            # Snapshot the clipped+noised gradients BEFORE sparsity / optimizer step.
+            # This is what GIR should attack — the actual gradient the attacker observes.
+            should_eval = (
+                risk_eval_count < max_risk_evals
+                and ((batch_idx + 1) % risk_eval_interval == 0 or batch_idx == len(dataloader) - 1)
+            )
+            if should_eval:
+                real_noisy_grads = _snapshot_grads(model)
+                score = _run_gir_evaluation(
+                    model, data, labels, real_noisy_grads,
+                    sigma, dp_method, chaotic_factor, risk_cfg,
+                    current_epoch, client_id, local_epoch_idx, batch_idx,
                 )
-                risk_result = simulate_gradient_inversion_risk(
-                    model=model,
-                    batch_data=data.detach(),
-                    batch_labels=labels.detach(),
-                    risk_cfg=risk_cfg,
-                    defense_cfg=defense_cfg,
-                )
-                risk_scores_per_batch.append(
-                    float(
-                        risk_result.get(
-                            "defense_score",
-                            1.0 - float(risk_result.get("risk_score", 0.5))
-                        )
-                    )
-                )
+                risk_scores_per_batch.append(score)
                 risk_eval_count += 1
 
-            # 梯度稀疏化（可选）
-            if args.sparsity_ratio > 0 and dp_method != 'none':
-                for param in model.parameters():
-                    if param.grad is not None:
-                        grad_flat = param.grad.view(-1)
-                        k = int((1 - args.sparsity_ratio) * grad_flat.numel())
-                        if k > 0 and k < grad_flat.numel():
-                            values, indices = torch.topk(grad_flat.abs(), k)
-                            mask = torch.zeros_like(grad_flat)
-                            mask[indices] = 1
-                            param.grad.data.mul_(mask.view(param.grad.shape))
-
+            _apply_sparsity_inplace(model, args.sparsity_ratio if dp_method != 'none' else 0.0)
             optimizer.step()
 
         if batch_losses:
@@ -420,10 +347,9 @@ def local_update_with_dp(model, dataloader, global_model, client_data_size,
 
     with torch.no_grad():
         final_params = [param.clone().detach() for param in model.parameters()]
-        model_update = [final_param - global_param for final_param, global_param in zip(final_params, global_params)]
+        model_update = [fp - gp for fp, gp in zip(final_params, global_params)]
 
     model = model.to('cpu')
-
     avg_loss = np.mean(epoch_losses) if epoch_losses else 0.0
     return model_update, avg_risk, avg_loss
 
@@ -482,80 +408,39 @@ def main():
     try:
         if dataset == 'MNIST':
             print("使用MNIST数据集...")
-            try:
-                train_dataset, test_dataset = get_mnist_datasets()
-                clients_train_set = get_clients_datasets(train_dataset, current_num_clients)
-                client_data_sizes = [len(client_dataset) for client_dataset in clients_train_set]
-                clients_train_loaders = [DataLoader(client_dataset, batch_size=batch_size, shuffle=True)
-                                         for client_dataset in clients_train_set]
-                clients_test_loaders = [DataLoader(test_dataset, batch_size=256) for i in range(current_num_clients)]
-
-                class FixedMNISTNet(nn.Module):
-                    def __init__(self):
-                        super(FixedMNISTNet, self).__init__()
-                        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-                        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-                        self.dropout1 = nn.Dropout(0.25)
-                        self.dropout2 = nn.Dropout(0.5)
-                        self.fc1 = nn.Linear(9216, 128)
-                        self.fc2 = nn.Linear(128, 10)
-
-                    def forward(self, x):
-                        x = self.conv1(x)
-                        x = F.relu(x)
-                        x = self.conv2(x)
-                        x = F.relu(x)
-                        x = F.max_pool2d(x, 2)
-                        x = self.dropout1(x)
-                        x = torch.flatten(x, 1)
-                        x = self.fc1(x)
-                        x = F.relu(x)
-                        x = self.dropout2(x)
-                        x = self.fc2(x)
-                        return x
-
-                clients_models = [FixedMNISTNet() for _ in range(current_num_clients)]
-                global_model = FixedMNISTNet()
-                print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
-            except Exception as e:
-                print(f"原始数据加载失败: {str(e)}")
-                return
+            train_dataset, test_dataset = get_mnist_datasets()
+            clients_train_set = get_clients_datasets(train_dataset, current_num_clients)
+            client_data_sizes = [len(client_dataset) for client_dataset in clients_train_set]
+            clients_train_loaders = [DataLoader(client_dataset, batch_size=batch_size, shuffle=True)
+                                     for client_dataset in clients_train_set]
+            clients_test_loaders = [DataLoader(test_dataset, batch_size=256) for i in range(current_num_clients)]
+            clients_models = [mnistNet() for _ in range(current_num_clients)]
+            global_model = mnistNet()
+            print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
 
         elif dataset == 'CIFAR10':
             print("使用CIFAR10数据集...")
-            try:
-                clients_train_loaders, clients_test_loaders, client_data_sizes = get_CIFAR10(args.dir_alpha,
-                                                                                             current_num_clients)
-                clients_models = [cifar10Net() for _ in range(current_num_clients)]
-                global_model = cifar10Net()
-                print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
-            except Exception as e:
-                print(f"原始数据加载失败: {str(e)}")
-                return
+            clients_train_loaders, clients_test_loaders, client_data_sizes = get_CIFAR10(
+                args.dir_alpha, current_num_clients, batch_size=args.batch_size)
+            clients_models = [cifar10Net() for _ in range(current_num_clients)]
+            global_model = cifar10Net()
+            print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
 
         elif dataset == 'SVHN':
             print("使用SVHN数据集...")
-            try:
-                clients_train_loaders, clients_test_loaders, client_data_sizes = get_SVHN(args.dir_alpha,
-                                                                                          current_num_clients)
-                clients_models = [SVHNNet() for _ in range(current_num_clients)]
-                global_model = SVHNNet()
-                print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
-            except Exception as e:
-                print(f"原始数据加载失败: {str(e)}")
-                return
+            clients_train_loaders, clients_test_loaders, client_data_sizes = get_SVHN(
+                args.dir_alpha, current_num_clients, batch_size=args.batch_size)
+            clients_models = [SVHNNet() for _ in range(current_num_clients)]
+            global_model = SVHNNet()
+            print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
 
         elif dataset == 'FashionMNIST':
             print("使用FashionMNIST数据集...")
-            try:
-                clients_train_loaders, clients_test_loaders, client_data_sizes = get_FashionMNIST(args.dir_alpha,
-                                                                                             current_num_clients)
-                clients_models = [fashionmnistNet() for _ in range(current_num_clients)]
-                global_model = fashionmnistNet()
-                print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
-            except Exception as e:
-                print(f"原始数据加载失败: {str(e)}")
-                return
+            clients_train_loaders, clients_test_loaders, client_data_sizes = get_FashionMNIST(
+                args.dir_alpha, current_num_clients, batch_size=args.batch_size)
+            clients_models = [fashionmnistNet() for _ in range(current_num_clients)]
+            global_model = fashionmnistNet()
+            print(f"使用原始数据加载方法成功: {len(clients_train_loaders)}个客户端")
 
         else:
             print('不支持的数据集名称。')
@@ -631,12 +516,7 @@ def main():
             clients_risks.append(risk_score)
             clients_losses.append(avg_loss)
 
-            try:
-                accuracy = test(client_model, client_testloader)
-            except Exception as e:
-                print(f"测试失败: {str(e)}")
-                accuracy = random.uniform(30.0, 70.0)
-
+            accuracy = test(client_model, client_testloader)
             clients_accuracies.append(accuracy)
 
         print(f"轮次 {epoch + 1} 客户端准确率: {[f'{acc:.2f}%' for acc in clients_accuracies]}")

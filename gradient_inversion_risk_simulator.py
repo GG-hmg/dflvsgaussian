@@ -180,13 +180,27 @@ def _compute_observed_gradients(
     x_true: torch.Tensor,
     y_true: torch.Tensor,
     defense_cfg: DefenseSimulationConfig,
+    real_noisy_grads: List[torch.Tensor] = None,
 ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    """
+    Compute (clean_grads, observed_grads) for the inversion attack.
+
+    If `real_noisy_grads` is provided, it is used verbatim as the
+    attacker-observed gradient (matching what was actually transmitted
+    during training). Otherwise the function falls back to applying
+    `defense_cfg` to freshly-computed clean gradients — used by callers
+    that have no access to the real training noise (e.g. unit tests).
+    """
     params = [p for p in model.parameters() if p.requires_grad]
     model.zero_grad(set_to_none=True)
     logits = model(x_true)
     loss = F.cross_entropy(logits, y_true)
     clean_grads = list(torch.autograd.grad(loss, params, create_graph=False))
-    defended_grads = _apply_defense_to_gradients(clean_grads, defense_cfg)
+
+    if real_noisy_grads is not None:
+        defended_grads = [g.detach().clone() for g in real_noisy_grads]
+    else:
+        defended_grads = _apply_defense_to_gradients(clean_grads, defense_cfg)
     return clean_grads, defended_grads
 
 
@@ -366,10 +380,14 @@ def simulate_gradient_inversion_risk(
     batch_labels: torch.Tensor,
     risk_cfg: GradientInversionRiskConfig,
     defense_cfg: DefenseSimulationConfig,
+    real_noisy_grads: List[torch.Tensor] = None,
 ) -> Dict[str, float]:
     """
     Paper-style simulator:
     1) Build observed gradients under defense.
+       If `real_noisy_grads` is provided (the actual clipped+noised grads
+       that training transmitted), use those — that is what the attacker
+       genuinely sees. Otherwise regenerate noise from `defense_cfg`.
     2) Run gradient inversion optimization.
     3) Use average and best reconstruction quality as leakage proxies.
     """
@@ -386,7 +404,9 @@ def simulate_gradient_inversion_risk(
         attack_model.eval()
         params = [p for p in attack_model.parameters() if p.requires_grad]
 
-        clean_grads, target_grads = _compute_observed_gradients(attack_model, x_true, y_true, defense_cfg)
+        clean_grads, target_grads = _compute_observed_gradients(
+            attack_model, x_true, y_true, defense_cfg, real_noisy_grads=real_noisy_grads,
+        )
         target_grads = [g.detach() for g in target_grads]
         perturb_ratio = _relative_perturbation(clean_grads, target_grads)
         noise_stats = _noise_signature_stats(clean_grads, target_grads)

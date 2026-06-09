@@ -1,15 +1,11 @@
 import torch
 import os
-import pickle
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Subset, Dataset, SubsetRandomSampler
+from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
 import numpy as np
 from typing import Tuple, List
-from options import parse_args
 import random
 from collections import Counter
-
-args = parse_args()
 
 # 添加条件导入检查fedlab
 try:
@@ -46,7 +42,7 @@ if not FEDLAB_AVAILABLE:
 
 
 # SVHN------------------------------------------------------------
-def get_SVHN(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
+def get_SVHN(alpha: float, num_clients: int, batch_size: int = 32) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
     transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.ToTensor(),
@@ -75,7 +71,7 @@ def get_SVHN(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[Dat
     for i in range(num_clients):
         train_sampler = SubsetRandomSampler(train_partition[i])
 
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, drop_last=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True)
 
         train_loaders.append(train_loader)
         test_loaders.append(shared_test_loader)
@@ -123,7 +119,7 @@ def get_clients_datasets(train_dataset, num_clients):
     return clients_datasets
 
 
-def get_CIFAR10(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
+def get_CIFAR10(alpha: float, num_clients: int, batch_size: int = 32) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
     if not FEDLAB_AVAILABLE:
         print("警告：fedlab不可用，使用IID CIFAR10数据分区")
         return get_iid_cifar10(num_clients)
@@ -156,7 +152,7 @@ def get_CIFAR10(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[
     for i in range(num_clients):
         train_sampler = torch.utils.data.SubsetRandomSampler(train_partition[i])
 
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, drop_last=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True)
 
         train_loaders.append(train_loader)
         test_loaders.append(shared_test_loader)
@@ -256,38 +252,7 @@ def get_iid_cifar10(num_clients: int) -> Tuple[List[DataLoader], List[DataLoader
     return train_loaders, test_loaders, client_data_sizes
 
 
-# FEMNIST-------------------------------------------------------------------------------------------
-# 注释掉TensorFlow相关的FEMNIST代码，因为存在兼容性问题
-# 如果需要FEMNIST数据集，请安装兼容的TensorFlow版本
-
-class TFDatasetToTorch(Dataset):
-    def __init__(self, data, transform=None):
-        self.transform = transform
-        self.data = []
-        # 这是一个空的实现，因为TensorFlow不可用
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        # 返回空数据
-        return torch.tensor([]), torch.tensor(0)
-
-
-def get_FEMNIST(numOfClients):
-    print("错误：FEMNIST数据集需要TensorFlow和tensorflow-federated，但这些包已被移除以避免兼容性问题")
-    print("请使用其他数据集：MNIST、CIFAR10或SVHN")
-    return [], [], []
-
-
 # EMNIST-----------------------------------------------------------------------
-
-import torch
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
-import numpy as np
-
-from collections import Counter
 
 
 def get_EMNIST(num_clients):
@@ -349,7 +314,7 @@ def get_EMNIST(num_clients):
 
 
 # FashionMNIST-------------------------------------------------------------------------------------------------
-def get_FashionMNIST(alpha: float, num_clients: int) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
+def get_FashionMNIST(alpha: float, num_clients: int, batch_size: int = 32) -> Tuple[List[DataLoader], List[DataLoader], List[int]]:
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,))  # FashionMNIST 标准化
@@ -374,7 +339,7 @@ def get_FashionMNIST(alpha: float, num_clients: int) -> Tuple[List[DataLoader], 
 
     for i in range(num_clients):
         train_sampler = torch.utils.data.SubsetRandomSampler(train_partition[i])
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, drop_last=True)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, drop_last=True)
 
         train_loaders.append(train_loader)
         test_loaders.append(shared_test_loader)

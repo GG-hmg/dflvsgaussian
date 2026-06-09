@@ -71,21 +71,31 @@ Global Model → Local Training (Client)
 
 ### Key Modules
 
-**utils.py** — Noise Engine
-- `_get_pure_dfl_sequences(a, b, k, seed_val, needed_length)`: Pure DFL map `x(n+1) = mod(a*x(n)*(1-x(n)) + b*x(n-k), 1.0)`. Pre-computes sequence once (cache key: `(a,b,k)`), then deterministic hash-avalanche start_idx per call. No repeats, no golden ratio, no jitter.
-- `generate_dfl_gaussian_noise(shape, a, b, k, x0, burn_in, decimation, device)`: Extracts DFL sequence (5x oversampling), applies burn-in + decimation, degeneracy guard, adjacent-pair coupling, feeds to Gaussian sampler. If `device` is set, runs sampler on GPU.
-- `generate_ziggurat_gaussian_noise(shape, uniform_sequence)`: True Marsaglia-Tsang (2000) Ziggurat — 256-layer lookup tables, float64 internally, float32 output. Tables move to input tensor's device automatically.
-- `generate_inverse_cdf_gaussian_noise(shape, uniform_sequence)`: Classic erfinv inverse-CDF — kept for ablation comparison. Simpler and faster than Ziggurat, identical accuracy in practice.
-- `generate_random_gaussian_noise(shape, device, dtype)`: Gaussian path — uses `torch.rand` as uniform source, feeds to the active Gaussian sampler.
+**utils.py** — Noise Engine (no top-level args; safe to import without sys.argv)
+- `_get_pure_dfl_sequences(a, b, k, seed_val, needed_length)`: Pure DFL map `x(n+1) = mod(a*x(n)*(1-x(n)) + b*x(n-k), 1.0)`. Pre-computes sequence once (cache key: `(a,b,k)`), then `start_idx = int(seed_val * max_start) % max_start` (single hash from the caller-side `(client, epoch, batch)` Knuth-multiply).
+- `generate_dfl_gaussian_noise(shape, a, b, k, x0, burn_in, decimation, device)`: Extracts DFL sequence (5x oversampling), applies burn-in + decimation, degeneracy guard, adjacent-pair coupling, feeds to inverse-CDF Gaussian sampler. If `device` is set, runs sampler on GPU.
+- `generate_inverse_cdf_gaussian_noise(shape, uniform_sequence)`: erfinv inverse-CDF — the active Gaussian sampler used by both training paths.
+- `generate_ziggurat_gaussian_noise(shape, uniform_sequence)`: Marsaglia-Tsang (2000) Ziggurat. **Not used in training** — kept for the noise-distribution diagnostic plot only (`plot_chaotic_vs_gaussian_distribution.py`).
+- `generate_random_gaussian_noise(shape, device, dtype)`: pure-Gaussian path — torch.rand → inverse-CDF.
 - `generate_random_gaussian_noise_like(reference_tensor)`: Convenience wrapper, matches device/dtype.
 
 **ours.py** — Training Pipeline
-- `local_update_with_dp()`: Client-side training with DP. Constant learning rate (`args.lr`) — earlier cosine LR decay was removed since the mix study doesn't need an LR schedule for fair comparison.
-- `generate_chaotic_noise_v2()`: Thin wrapper calling `generate_dfl_gaussian_noise()` with args from CLI.
-- GIR simulator runs at most once per client update (controlled by `gir_max_evals_per_client_update`).
+- `local_update_with_dp()`: Orchestrator. Each batch: forward → backward → clip → noise → **snapshot real noisy grads** → GIR eval → sparsity → optimizer.step. Helpers:
+  - `_clip_gradients_inplace(model, bound)` — global L2 clip
+  - `_add_dp_noise_inplace(...)` — pure-Gaussian or DFL+Gaussian mix
+  - `_snapshot_grads(model)` — capture transmitted-grad copy
+  - `_run_gir_evaluation(..., real_noisy_grads=...)` — feeds the actual training noise into the attacker, not a freshly resampled noise stream
+  - `_apply_sparsity_inplace(model, ratio)`
+- `adaptive_noise_scale()`: σ = C·sqrt(2 ln(1.25/δ))/ε — one-shot Gaussian mechanism. No sigma_factor, no decay, no cap.
+- `generate_chaotic_noise_v2()`: Thin wrapper for DFL Gaussian. Returns standard-normal directly (no extra std normalization).
+- Constant learning rate (`args.lr`) — cosine decay removed; the mix study doesn't need it.
+- GIR runs at most `gir_max_evals_per_client_update` times per update.
 
 **gradient_inversion_risk_simulator.py** — Privacy Evaluator
-- `simulate_gradient_inversion_risk()`: Deep-copies the model (no hooks), runs gradient-matching inversion attacks, returns leakage/PSNR/MSE scores. "Anti-Inversion Ability" = defense score (higher = better).
+- `simulate_gradient_inversion_risk(..., real_noisy_grads=None)`: Deep-copies the model, runs gradient-matching inversion attacks, returns leakage/PSNR/MSE scores. "Anti-Inversion Ability" = defense score (higher = better).
+- **When `real_noisy_grads` is supplied** (the actual clipped+noised grads from training), they are used as the attacker-observed gradient — that is what the attacker genuinely sees.
+- When omitted, falls back to regenerating noise inside the simulator via `defense_cfg` (useful for unit tests but not for true measurement).
+- **NOTE**: the simulator still applies a `±0.22` method-aware adjustment (line ~459) that adds risk to Gaussian and subtracts from DFL. This is a known issue (review #1) — not yet removed pending discussion.
 
 **run_experiments.py** — Batch Runner
 - Per-dataset, per-method parameter dicts. Validates sigma/epsilon equality between methods.
@@ -93,11 +103,12 @@ Global Model → Local Training (Client)
 - Other datasets use sigma=0.30, gap=8, sparsity=0.4 (not yet aligned with CIFAR10 tuning).
 - Single run per session (no `--num_runs` / `--run_id`). Fixed seed `20260313`. Session timestamp generated at init, shared by all output artifacts. CLI supports `--chaotic_factor α` to override DFL mix ratio without editing config.
 
-**data.py** — Federated Data Loading
-- MNIST: IID partition. CIFAR10/SVHN/FashionMNIST: heterogeneous Dirichlet (`hetero_dir_partition`).
-- FEMNIST support is broken.
+**data.py** — Federated Data Loading (no top-level args; loaders accept `batch_size` as a parameter)
+- MNIST: IID partition via `get_mnist_datasets()` + `get_clients_datasets()`.
+- CIFAR10 / SVHN / FashionMNIST: heterogeneous Dirichlet (`hetero_dir_partition`) — signatures end with `batch_size: int = 32`.
+- FEMNIST removed (was TF-dependent and broken).
 
-**net.py** — Models: `cifar10Net` (3 conv+3 fc), `mnistNet`, `SVHNNet`, `fashionmnistNet`.
+**net.py** — Models: `cifar10Net` (3 conv+3 fc), `mnistNet` (fixed: ReLU between conv1/conv2, fc2 out=10), `SVHNNet`, `fashionmnistNet`. Previously broken `femnistNet` removed.
 
 **plot_experiment_results.py** — Reads `experiment_results/` output, generates accuracy + anti-inversion charts. Auto-finds the most recent `dfl_/gaussian_` pair by shared timestamp; pass `--timestamp YYYYMMDD_HHMMSS` to plot a historical session. Falls back to legacy `{dataset}_{method}_run1_*` paths when no new-format files are found.
 
@@ -105,16 +116,17 @@ Global Model → Local Training (Client)
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `sigma_factor` | 0.01 | Same for Gaussian and DFL |
 | `clipping_bound` | 2.0 | |
 | `lr` | 0.004 | Constant (no decay) |
 | `dfl_a, dfl_b, dfl_k` | 4.0, 501.0, 3 | DFL map parameters |
 | `dfl_decimation` | 11 | Gap factor for decorrelation |
 | `dfl_burn_in` | 2048 | Burn-in steps before collecting samples |
 | `chaotic_factor` | sweep | Mix ratio α ∈ [0,1]. α=0 pure Gaussian, α=1 pure DFL. Mix formula: `√α·DFL + √(1-α)·G` (variance-preserving). |
-| `target_epsilon` | 8.0 | |
+| `target_epsilon` | 8.0 | One-shot Gaussian mechanism σ ≈ 1.22 at C=2.0, δ=1e-5. No sigma_factor multiplier — earlier code diluted noise by ~100× and broke the DP claim. |
 | `epochs` | 30 | |
 | `seed` | 20260313 | Fixed across all `run_experiments.py` sessions. Pass `--seed N` to `ours.py` for seed-variance ablation. |
+
+**Expected accuracy under real DP (post-cleanup)**: at ε=8 / C=2.0 / σ≈1.22, CIFAR10 typically converges to ~10–30% (vs ~75% under the old sigma_factor=0.01 setup). All α-sweep results recorded BEFORE this DP fix are invalidated — they ran under a much weaker noise regime.
 
 ## Sampling Comparison (2026-05-27)
 

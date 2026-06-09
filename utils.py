@@ -1,10 +1,6 @@
 import torch
-from options import parse_args
 import numpy as np
 import math
-import random
-
-args = parse_args()
 
 def generate_random_gaussian_noise(shape, device=None, dtype=torch.float32):
     """
@@ -281,10 +277,11 @@ def _get_pure_dfl_sequences(a, b, k, seed_val, needed_length):
 
     seq_tensor = _dfl_long_cache[cache_key]
 
-    # Hash-avalanche: even 0.0000001 difference in seed_val spreads across full pool
+    # seed_val ∈ [0, 1) is already a well-spread hash from the caller
+    # (see ours.py: (client_id, epoch, batch) → Knuth-multiply → x0).
+    # Direct mapping; no second avalanche needed.
     max_start = max(1, len(seq_tensor) - needed_length)
-    pseudo_random_int = int((seed_val * 999999937.0) % 2147483647)
-    start_idx = pseudo_random_int % max_start
+    start_idx = int(seed_val * max_start) % max_start
 
     return seq_tensor[start_idx : start_idx + needed_length]
 
