@@ -473,23 +473,6 @@ def simulate_gradient_inversion_risk(
                 avg_mse = float(aware_result["avg_mse"])
                 best_mse = float(aware_result["best_mse"])
 
-        # Noise-property based adjustment:
-        # - Gaussian noise has higher distribution exploitability for model-based denoisers.
-        # - Chaotic DFL gets robustness credit from structure complexity.
-        if defense_cfg.apply_noise and defense_cfg.sigma > 0:
-            gaussianity = float(noise_stats["gaussianity"])
-            structure = float(noise_stats["structure"])
-            if defense_cfg.dp_method == "gaussian":
-                exploitability = max(0.0, min(1.0, 0.7 * gaussianity + 0.3 * (1.0 - structure)))
-                leakage_risk = min(1.0, leakage_risk + 0.22 * exploitability * (1.0 - leakage_risk))
-            elif defense_cfg.dp_method == "dfl" and defense_cfg.use_chaotic:
-                chaotic_strength = max(0.0, min(1.0, float(defense_cfg.chaotic_factor)))
-                hardness = max(
-                    0.0,
-                    min(1.0, chaotic_strength * (0.6 * structure + 0.4 * (1.0 - gaussianity))),
-                )
-                leakage_risk = max(0.0, leakage_risk * (1.0 - 0.22 * hardness))
-
         # Anti-inversion ability should be higher when perturbation is stronger
         # and attack reconstruction leakage is lower.
         defense_score = float(max(0.0, min(1.0, perturb_score * (1.0 - leakage_risk))))
