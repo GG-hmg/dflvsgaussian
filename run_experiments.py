@@ -58,22 +58,25 @@ class ExperimentRunner:
         # noise injection only changes which RNG fills the noise tensor — the
         # rest of training is identical so the comparison stays fair.
         #
-        # target_epsilon=20.0: ε=8 collapsed every noise_kind to ~10–30% on
-        # CIFAR10, leaving no room to differentiate mechanisms. ε=20 lifts the
-        # accuracy ceiling enough for treatments to spread, at the cost of a
-        # weaker (still meaningful) DP guarantee for the gaussian baseline.
+        # target_epsilon=1000: at ε=20 (and even ε=200) on a ~340k-param model,
+        # the per-step noise L2 norm (≈ σ·√N) overwhelms the clipped signal
+        # norm by ~140×, so weights diverge and loss explodes long before any
+        # accuracy emerges. ε=1000 puts σ≈0.0097 and noise norm ≈5.7 vs
+        # signal ≈2, low enough for models to actually learn — at the cost of
+        # effectively no DP guarantee. The research goal here is comparing 5
+        # noise mechanisms at matched magnitude, NOT proving a DP bound.
         self.dataset_params = {
             "CIFAR10":      {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
-                             "target_epsilon": "20.0", "clipping_bound": "2.0", "sparsity_ratio": "0.0",
+                             "target_epsilon": "1000.0", "clipping_bound": "2.0", "sparsity_ratio": "0.0",
                              "dfl_decimation": "11"},
             "MNIST":        {"num_clients": "3", "batch_size": "64", "lr": "0.002", "local_epoch": "3",
-                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "1000.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
             "SVHN":         {"num_clients": "3", "batch_size": "32", "lr": "0.004", "local_epoch": "4",
-                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "1000.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
             "FashionMNIST": {"num_clients": "3", "batch_size": "64", "lr": "0.003", "local_epoch": "3",
-                             "target_epsilon": "20.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
+                             "target_epsilon": "1000.0", "clipping_bound": "1.5", "sparsity_ratio": "0.4",
                              "dfl_decimation": "8"},
         }
 

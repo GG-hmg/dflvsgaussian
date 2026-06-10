@@ -36,7 +36,7 @@ Training applies noise on **every batch of every local epoch of every global rou
 
 ### Practical implication
 
-The numeric `target_epsilon` setting in `run_experiments.py` is best read as a **noise-magnitude knob** (it determines σ), not as a formal DP guarantee. If/when the paper claims a DP guarantee, the safe scope is: "per-application, per-client, only the gaussian baseline". Anything stronger requires plugging in an RDP accountant.
+The numeric `target_epsilon` setting in `run_experiments.py` is best read as a **noise-magnitude knob** (it determines σ), not as a formal DP guarantee. The current default `target_epsilon=1000` is too loose to count as DP at all — it was chosen empirically so models can learn under matched noise magnitude across the 5 noise_kinds. **For this codebase as of 2026-06-10, do not claim any DP guarantee in the paper**; frame the work as "empirical comparison of noise injection mechanisms at matched magnitude". If a DP-claiming variant of the experiment is needed later, plug in an RDP accountant (Opacus / TF-Privacy) and pick a meaningful ε.
 
 ## Critical Platform Constraints
 
@@ -144,12 +144,12 @@ Global Model → Local Training (Client)
 | `dfl_a, dfl_b, dfl_k` | 4.0, 501.0, 3 | DFL map parameters |
 | `dfl_decimation` | 11 | Gap factor for decorrelation |
 | `dfl_burn_in` | 2048 | Burn-in steps before collecting samples |
-| `target_epsilon` | 20.0 | One-shot Gaussian mechanism σ ≈ 0.49 at C=2.0, δ=1e-5. Only `noise_kind=gaussian` gets the formal DP at this ε. Raised from 8.0 because ε=8 collapsed every method to ~10–30% on CIFAR10, leaving no headroom to differentiate noise mechanisms. |
+| `target_epsilon` | 1000.0 | One-shot Gaussian mechanism σ ≈ 0.0097 at C=2.0, δ=1e-5. **Effectively no DP guarantee.** Settings of ε ≤ 200 made σ·√N (noise norm ≈ 283 at ε=20 for the 343k-param CIFAR10 net) hugely overwhelm the clipped signal norm (= 2.0), so weights diverged and loss exploded to 100+ within 5 epochs. ε=1000 puts noise norm ≈ 5.7, low enough that the model actually learns. The research goal is comparing 5 noise mechanisms at matched magnitude — not proving a DP bound. |
 | `gir_attack_trials` | 5 | Per-epoch anti-inversion score is averaged over this many inversion attacks. With trials=1 the single-attack noise dominated (~0.46–0.74 swings); trials=5 cuts that to roughly ±0.05. |
 | `epochs` | 30 | |
 | `seed` | 20260313 | Fixed across all `run_experiments.py` sessions. |
 
-**Expected accuracy under current settings**: at ε=20 / C=2.0 / σ≈0.49, CIFAR10 should reach ~40–55% over 30 epochs — enough headroom for noise mechanisms to differentiate. (Under the previous ε=8 setting everything collapsed to ~10–30%.)
+**Expected accuracy under current settings**: at ε=1000 / C=2.0 / σ≈0.0097, CIFAR10 should reach roughly the same ceiling as a clean (non-DP) run (~70-75%), with mechanism differences showing up as small but measurable accuracy/anti-inversion deltas across the 5 noise_kinds.
 
 ## Sampling Comparison (2026-05-27, historical)
 
